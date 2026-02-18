@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    tools:context=".ui.MainActivity">
+
+    <!-- Header -->
+    <LinearLayout
+        android:id="@+id/headerLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/primary"
+        android:orientation="vertical"
+        android:padding="16dp"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Screen Reader \u2014 ShopeeFood Driver"
+            android:textColor="@color/white"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="@color/white"
+            android:textSize="14sp"
+            tools:text="\u2705 Screen Reader Aktif" />
+
+        <TextView
+            android:id="@+id/tvCaptureCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="@color/white"
+            android:textSize="14sp"
+            tools:text="Hari ini: 47 tangkapan" />
+
+    </LinearLayout>
+
+    <!-- Enable Button (shown when service is NOT active) -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnEnable"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        android:text="@string/btn_enable_reader"
+        android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/headerLayout"
+        tools:visibility="visible" />
+
+    <!-- Capture List -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerCaptures"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:clipToPadding="false"
+        android:padding="8dp"
+        app:layout_constraintBottom_toTopOf="@id/bottomButtons"
+        app:layout_constraintTop_toBottomOf="@id/headerLayout" />
+
+    <!-- Empty State -->
+    <TextView
+        android:id="@+id/tvEmpty"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Belum ada tangkapan.\nBuka ShopeeFood Driver untuk mulai."
+        android:textAlignment="center"
+        android:textColor="@color/text_secondary"
+        android:textSize="16sp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/bottomButtons"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/headerLayout" />
+
+    <!-- Bottom Buttons -->
+    <LinearLayout
+        android:id="@+id/bottomButtons"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:background="@color/card_background"
+        android:elevation="8dp"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnClearLogs"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:text="@string/btn_clear_logs"
+            android:textColor="@color/status_inactive" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDisable"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/btn_disable_reader"
+            android:textColor="@color/text_secondary" />
+
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
