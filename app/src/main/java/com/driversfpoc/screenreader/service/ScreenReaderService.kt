@@ -4,8 +4,10 @@ import android.accessibilityservice.AccessibilityService
 import android.app.Notification
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.Rect
 import android.os.Build
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.core.app.NotificationCompat
@@ -18,7 +20,7 @@ import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import java.time.Instant
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import java.util.concurrent.Executors
 
 /**
  * AccessibilityService yang membaca semua teks di layar ShopeeFood Driver.
@@ -33,6 +35,7 @@ import java.time.format.DateTimeFormatter
 class ScreenReaderService : AccessibilityService() {
 
     companion object {
+        private const val TAG = "ScreenReaderService"
         private const val FOREGROUND_NOTIFICATION_ID = 1001
         private const val TARGET_PACKAGE = "com.shopee.foody.driver.id"
         private const val DEBOUNCE_MS = 300L
@@ -46,19 +49,38 @@ class ScreenReaderService : AccessibilityService() {
 
     private lateinit var repository: CaptureRepository
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
+    private val executor = Executors.newSingleThreadExecutor()
     private var lastCaptureTime = 0L
     private var lastCaptureHash = 0
 
     override fun onCreate() {
         super.onCreate()
+        Log.d(TAG, "onCreate")
         repository = CaptureRepository.getInstance(applicationContext)
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        Log.d(TAG, "onServiceConnected")
         isRunning = true
-        loadTodayCount()
-        startForegroundNotification()
+
+        // Start foreground notification FIRST (sebelum operasi lain)
+        try {
+            startForegroundNotification()
+            Log.d(TAG, "Foreground notification started")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start foreground notification", e)
+        }
+
+        // Load today count di BACKGROUND thread (Room tidak boleh di main thread)
+        executor.execute {
+            try {
+                loadTodayCount()
+                Log.d(TAG, "Today count loaded: $captureCountToday")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load today count", e)
+            }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -73,7 +95,12 @@ class ScreenReaderService : AccessibilityService() {
         if (now - lastCaptureTime < DEBOUNCE_MS) return
 
         // Ambil root node
-        val rootNode = rootInActiveWindow ?: return
+        val rootNode = try {
+            rootInActiveWindow
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get rootInActiveWindow", e)
+            null
+        } ?: return
 
         try {
             // Traverse node tree
@@ -96,17 +123,11 @@ class ScreenReaderService : AccessibilityService() {
             }.trim()
 
             // Skip jika teks kosong
-            if (plainText.isBlank()) {
-                rootNode.recycle()
-                return
-            }
+            if (plainText.isBlank()) return
 
             // Skip jika teks sama persis dengan tangkapan sebelumnya (deduplicate)
             val currentHash = plainText.hashCode()
-            if (currentHash == lastCaptureHash) {
-                rootNode.recycle()
-                return
-            }
+            if (currentHash == lastCaptureHash) return
 
             // Build node tree JSON
             val nodeTreeJson = gson.toJson(nodeDataList)
@@ -118,7 +139,7 @@ class ScreenReaderService : AccessibilityService() {
                 else -> "OTHER"
             }
 
-            // Simpan ke database
+            // Simpan ke database (di background thread via repository)
             val record = CaptureRecord(
                 timestamp = Instant.now().toString(),
                 plainText = plainText,
@@ -134,20 +155,27 @@ class ScreenReaderService : AccessibilityService() {
             lastCaptureHash = currentHash
             captureCountToday++
 
-            // Update notification
-            updateNotification()
+            Log.d(TAG, "Captured #$captureCountToday: ${plainText.take(50)}...")
 
-        } finally {
-            rootNode.recycle()
+            // Update notification di background
+            try {
+                updateNotification()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to update notification", e)
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing accessibility event", e)
         }
     }
 
     override fun onInterrupt() {
-        // Service interrupted — nothing to clean up
+        Log.d(TAG, "onInterrupt")
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        Log.d(TAG, "onDestroy")
         isRunning = false
         captureCountToday = 0
     }
@@ -166,28 +194,35 @@ class ScreenReaderService : AccessibilityService() {
         result: MutableList<NodeData>,
         depth: Int
     ) {
-        val bounds = Rect()
-        node.getBoundsInScreen(bounds)
+        try {
+            val bounds = Rect()
+            node.getBoundsInScreen(bounds)
 
-        val nodeData = NodeData(
-            className = node.className?.toString() ?: "",
-            text = node.text?.toString() ?: "",
-            contentDescription = node.contentDescription?.toString() ?: "",
-            resourceId = node.viewIdResourceName ?: "",
-            boundsLeft = bounds.left,
-            boundsTop = bounds.top,
-            boundsRight = bounds.right,
-            boundsBottom = bounds.bottom,
-            childCount = node.childCount,
-            depth = depth
-        )
-        result.add(nodeData)
+            val nodeData = NodeData(
+                className = node.className?.toString() ?: "",
+                text = node.text?.toString() ?: "",
+                contentDescription = node.contentDescription?.toString() ?: "",
+                resourceId = node.viewIdResourceName ?: "",
+                boundsLeft = bounds.left,
+                boundsTop = bounds.top,
+                boundsRight = bounds.right,
+                boundsBottom = bounds.bottom,
+                childCount = node.childCount,
+                depth = depth
+            )
+            result.add(nodeData)
 
-        // Recursive: traverse semua child nodes
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            traverseNode(child, result, depth + 1)
-            child.recycle()
+            // Recursive: traverse semua child nodes
+            for (i in 0 until node.childCount) {
+                val child = try {
+                    node.getChild(i)
+                } catch (e: Exception) {
+                    null
+                } ?: continue
+                traverseNode(child, result, depth + 1)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error traversing node at depth $depth", e)
         }
     }
 
@@ -197,7 +232,16 @@ class ScreenReaderService : AccessibilityService() {
 
     private fun startForegroundNotification() {
         val notification = buildNotification()
-        startForeground(FOREGROUND_NOTIFICATION_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // Android 14+ requires foreground service type
+            startForeground(
+                FOREGROUND_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            )
+        } else {
+            startForeground(FOREGROUND_NOTIFICATION_ID, notification)
+        }
     }
 
     private fun updateNotification() {
