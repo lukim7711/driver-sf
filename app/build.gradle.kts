@@ -27,6 +27,8 @@ android {
     }
 
     compileOptions {
+        // Enable core library desugaring untuk java.time support di API 24+
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -38,9 +40,18 @@ android {
     buildFeatures {
         viewBinding = true
     }
+
+    lint {
+        // Treat hanya error sebagai fatal, warnings tidak block build
+        abortOnError = true
+        warningsAsErrors = false
+    }
 }
 
 dependencies {
+    // Core Library Desugaring (java.time for API < 26)
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+
     // AndroidX Core
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
