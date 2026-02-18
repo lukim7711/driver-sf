@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Green circle background -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0" />
+    <!-- "SF" text stylized -->
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M42.5,40 C42.5,40 38,40 38,43.5 C38,47 42,47.5 45,48.5 C48,49.5 48.5,50.5 48.5,52 C48.5,55.5 44,56 42,56 C40,56 37,55 37,55 L38,52 C38,52 40.5,53.5 42.5,53.5 C44.5,53.5 45.5,52.5 45.5,51.5 C45.5,50.5 44.5,49.8 42,49 C39.5,48.2 35,47 35,43 C35,39 39.5,37.5 42,37.5 C44.5,37.5 47,38.5 47,38.5 L45.5,41 C45.5,41 43.5,40 42.5,40Z" />
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M53,37.5 L65,37.5 L65,40.5 L56,40.5 L56,45.5 L63,45.5 L63,48.5 L56,48.5 L56,56 L53,56 Z" />
+</vector>
