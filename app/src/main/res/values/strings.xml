@@ -13,7 +13,8 @@
     <string name="btn_add_to_flow">\uD83D\uDCCB +Flow</string>
     <string name="btn_flow_boards">\uD83D\uDCCB Flows</string>
     <string name="btn_create_board">\u2795 Buat Flow Board</string>
-    <string name="btn_delete_board">\uD83D\uDDD1 Hapus Board</string>
+    <string name="btn_delete_board">\uD83D\uDDD1 Hapus</string>
+    <string name="btn_export">\uD83D\uDCE4 Export</string>
     <string name="status_active">\u2705 Screen Reader Aktif</string>
     <string name="status_inactive">\u274c Screen Reader Tidak Aktif</string>
     <string name="capture_today">Total: %d tangkapan</string>
@@ -46,4 +47,13 @@
     <string name="flow_board_empty">Belum ada Flow Board.\nBuat flow board pertama untuk\nmulai mengorganisir log.</string>
     <string name="flow_board_detail_empty">Belum ada item.\nTambahkan log dari halaman detail.</string>
     <string name="flow_board_item_count">%d langkah \u2022 Drag \u2261 untuk urutkan</string>
+    <string name="export_title">Export Flow Board</string>
+    <string name="export_share">\uD83D\uDCE4 Share JSON</string>
+    <string name="export_copy">\uD83D\uDCCB Copy to Clipboard</string>
+    <string name="export_save">\uD83D\uDCBE Simpan File .json</string>
+    <string name="export_share_chooser">Kirim flow board via\u2026</string>
+    <string name="export_copied">JSON disalin! (%d karakter)</string>
+    <string name="export_saved">File berhasil disimpan</string>
+    <string name="export_save_failed">Gagal menyimpan file</string>
+    <string name="export_empty">Tidak ada item untuk diekspor</string>
 </resources>
