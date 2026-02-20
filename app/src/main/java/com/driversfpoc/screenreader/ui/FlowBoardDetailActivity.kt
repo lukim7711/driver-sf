@@ -24,16 +24,6 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executors
 
-/**
- * Halaman detail Flow Board.
- *
- * Fitur:
- * - Drag & drop untuk reorder (long press)
- * - Tap item untuk lihat detail capture
- * - Remove item dari flow board (tombol \u2715)
- * - Export sebagai JSON untuk analisis AI (termasuk full node tree)
- * - Hapus seluruh flow board
- */
 class FlowBoardDetailActivity : AppCompatActivity() {
 
     companion object {
@@ -50,13 +40,8 @@ class FlowBoardDetailActivity : AppCompatActivity() {
     private var boardName: String = ""
     private var boardDescription: String = ""
     private var boardCreatedAt: String = ""
-
-    // Pending JSON for file save callback
     private var pendingExportJson: String = ""
 
-    /**
-     * SAF launcher: user pilih lokasi file \u2192 tulis JSON.
-     */
     private val saveFileLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri: Uri? ->
@@ -183,10 +168,6 @@ class FlowBoardDetailActivity : AppCompatActivity() {
     // Export
     // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
-    /**
-     * Export flow board sebagai JSON terstruktur.
-     * Pilihan: Share, Copy, atau Save file.
-     */
     private fun exportFlowBoard() {
         if (currentItems.isEmpty()) {
             Toast.makeText(this, getString(R.string.export_empty), Toast.LENGTH_SHORT).show()
@@ -212,16 +193,8 @@ class FlowBoardDetailActivity : AppCompatActivity() {
     }
 
     /**
-     * Build JSON terstruktur untuk analisis AI.
-     *
-     * Setiap step berisi:
-     * - screen_content: plain text (ringkasan cepat)
-     * - node_tree: FULL raw JSON array dari setiap UI node
-     *   (className, text, contentDescription, resourceId,
-     *    bounds, childCount, depth)
-     *
-     * Format node_tree sama persis dengan file-file .md di Space
-     * yang digunakan untuk analisis AI.
+     * Build export JSON. Setiap step hanya berisi node_tree (raw data).
+     * Plain text TIDAK di-include karena itu cuma turunan dari node_tree.
      */
     private fun buildExportJson(): String {
         val timeFormatter = DateTimeFormatter
@@ -229,7 +202,6 @@ class FlowBoardDetailActivity : AppCompatActivity() {
             .withZone(ZoneId.systemDefault())
 
         val exportObj = JSONObject().apply {
-            // Board metadata
             put("flow_board", JSONObject().apply {
                 put("name", boardName)
                 put("description", boardDescription)
@@ -237,7 +209,6 @@ class FlowBoardDetailActivity : AppCompatActivity() {
                 put("total_steps", currentItems.size)
             })
 
-            // Ordered steps with full node tree
             put("steps", JSONArray().apply {
                 currentItems.forEachIndexed { index, item ->
                     val capture = item.capture
@@ -247,7 +218,6 @@ class FlowBoardDetailActivity : AppCompatActivity() {
                         capture.timestamp
                     }
 
-                    // Parse node tree JSON string back into JSONArray
                     val nodeTree = try {
                         if (capture.nodeTreeJson.isNotBlank()) {
                             JSONArray(capture.nodeTreeJson)
@@ -272,8 +242,6 @@ class FlowBoardDetailActivity : AppCompatActivity() {
                         put("note", item.item.note)
                         put("tag", capture.tag)
                         put("is_starred", capture.isStarred)
-                        put("text_length", capture.textLength)
-                        put("screen_content", capture.plainText)
                         put("node_tree", nodeTree)
                     })
                 }
@@ -283,9 +251,6 @@ class FlowBoardDetailActivity : AppCompatActivity() {
         return exportObj.toString(2)
     }
 
-    /**
-     * Share JSON via Android share intent.
-     */
     private fun shareJson(json: String) {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
@@ -295,9 +260,6 @@ class FlowBoardDetailActivity : AppCompatActivity() {
         startActivity(Intent.createChooser(intent, getString(R.string.export_share_chooser)))
     }
 
-    /**
-     * Copy JSON ke clipboard.
-     */
     private fun copyToClipboard(json: String) {
         val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText("Flow Board: $boardName", json)
@@ -305,16 +267,9 @@ class FlowBoardDetailActivity : AppCompatActivity() {
 
         val sizeKb = json.length / 1024
         val sizeText = if (sizeKb > 0) "${sizeKb}KB" else "${json.length} chars"
-        Toast.makeText(
-            this,
-            getString(R.string.export_copied, sizeText),
-            Toast.LENGTH_SHORT
-        ).show()
+        Toast.makeText(this, getString(R.string.export_copied, sizeText), Toast.LENGTH_SHORT).show()
     }
 
-    /**
-     * Simpan JSON sebagai file .json menggunakan SAF.
-     */
     private fun saveAsFile(json: String) {
         pendingExportJson = json
         val safeName = boardName
