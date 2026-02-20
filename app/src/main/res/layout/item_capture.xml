@@ -16,33 +16,73 @@
         android:orientation="vertical"
         android:padding="12dp">
 
-        <!-- Row 1: Time + Capture Number -->
+        <!-- Row 1: Event Badge + Time + Star + Number -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tvEventBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp"
+                android:textColor="@color/white"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                tools:text="\uD83D\uDCF1 PAGE" />
 
             <TextView
                 android:id="@+id/tvTime"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:textColor="@color/primary"
-                android:textSize="13sp"
-                android:textStyle="bold"
-                tools:text="[16:42:03]" />
+                android:layout_marginStart="8dp"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                tools:text="19:02:15" />
+
+            <TextView
+                android:id="@+id/tvStar"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="\u2B50"
+                android:textSize="14sp"
+                android:visibility="gone"
+                tools:visibility="visible" />
 
             <TextView
                 android:id="@+id/tvCaptureNumber"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
                 android:textColor="@color/text_secondary"
-                android:textSize="12sp"
-                tools:text="Tangkapan #47" />
+                android:textSize="11sp"
+                tools:text="#47" />
 
         </LinearLayout>
 
-        <!-- Row 2: Text Preview -->
+        <!-- Row 2: Tag (if exists) -->
+        <TextView
+            android:id="@+id/tvTag"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:textColor="@color/primary"
+            android:textSize="11sp"
+            android:visibility="gone"
+            tools:text="bid-manual"
+            tools:visibility="visible" />
+
+        <!-- Row 3: Text Preview -->
         <TextView
             android:id="@+id/tvPreview"
             android:layout_width="match_parent"
@@ -52,33 +92,17 @@
             android:maxLines="2"
             android:textColor="@color/text_primary"
             android:textSize="14sp"
-            tools:text="Trip #6VUS \u2014 Order Details \u2014 Komplek Taman Duta Mas..." />
+            tools:text="TEXT: Terima8s | CLASS: TextView | ID: ...btntext" />
 
-        <!-- Row 3: Character Count + Event Type -->
-        <LinearLayout
+        <!-- Row 4: Character Count -->
+        <TextView
+            android:id="@+id/tvCharCount"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/tvCharCount"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp"
-                tools:text="Teks: 285 karakter" />
-
-            <TextView
-                android:id="@+id/tvEventType"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="@color/text_secondary"
-                android:textSize="11sp"
-                tools:text="STATE_CHANGED" />
-
-        </LinearLayout>
+            android:layout_marginTop="4dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp"
+            tools:text="145 chars" />
 
     </LinearLayout>
 

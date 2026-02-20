@@ -1,6 +1,9 @@
 package com.driversfpoc.screenreader.ui
 
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -14,6 +17,8 @@ import java.time.format.DateTimeFormatter
 /**
  * RecyclerView Adapter untuk daftar tangkapan.
  * Menggunakan ListAdapter + DiffUtil untuk performa optimal.
+ *
+ * v2: Ditambahkan event badge berwarna, star icon, tag chip, smart preview.
  */
 class CaptureAdapter(
     private val onItemClick: (CaptureRecord) -> Unit
@@ -39,31 +44,66 @@ class CaptureAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
 
         fun bind(record: CaptureRecord) {
+            // Event type badge with color
+            val (badgeText, badgeColor) = when (record.eventType) {
+                "VIEW_CLICKED" -> "\uD83D\uDD8B CLICK" to "#FF6B35"
+                "VIEW_SELECTED" -> "\uD83D\uDD18 SELECT" to "#9C27B0"
+                "WINDOW_STATE_CHANGED" -> "\uD83D\uDCF1 PAGE" to "#4CAF50"
+                "WINDOW_CONTENT_CHANGED" -> "\uD83D\uDCDD UPDATE" to "#2196F3"
+                else -> "\u2753 OTHER" to "#757575"
+            }
+            binding.tvEventBadge.text = badgeText
+            val badgeBg = GradientDrawable().apply {
+                setColor(Color.parseColor(badgeColor))
+                cornerRadius = 12f
+            }
+            binding.tvEventBadge.background = badgeBg
+
             // Time
             val time = try {
                 val instant = Instant.parse(record.timestamp)
-                "[${timeFormatter.format(instant)}]"
+                timeFormatter.format(instant)
             } catch (e: Exception) {
-                "[--:--:--]"
+                "--:--:--"
             }
             binding.tvTime.text = time
 
-            // Capture number
-            binding.tvCaptureNumber.text = "Tangkapan #${record.id}"
+            // Capture number (compact)
+            binding.tvCaptureNumber.text = "#${record.id}"
 
-            // Preview (first 100 chars, max 2 lines)
-            val preview = record.plainText
-                .replace("\n", " \u2014 ")
-                .take(100)
-            binding.tvPreview.text = "\"$preview\""
+            // Star
+            binding.tvStar.visibility = if (record.isStarred) View.VISIBLE else View.GONE
+
+            // Tag
+            if (record.tag.isNotBlank()) {
+                binding.tvTag.text = record.tag
+                binding.tvTag.visibility = View.VISIBLE
+                val tagBg = GradientDrawable().apply {
+                    setColor(Color.parseColor("#E8F5E9"))
+                    cornerRadius = 8f
+                    setStroke(1, Color.parseColor("#4CAF50"))
+                }
+                binding.tvTag.background = tagBg
+            } else {
+                binding.tvTag.visibility = View.GONE
+            }
+
+            // Smart preview based on event type
+            val preview = if (record.eventType in listOf("VIEW_CLICKED", "VIEW_SELECTED")) {
+                // For clicks, show the click info directly
+                record.plainText.take(120)
+            } else {
+                // For snapshots, show first meaningful line
+                record.plainText
+                    .lines()
+                    .firstOrNull { it.length > 5 }
+                    ?.take(120)
+                    ?: record.plainText.take(120)
+            }
+            binding.tvPreview.text = preview
 
             // Character count
-            binding.tvCharCount.text = "Teks: ${record.textLength} karakter"
-
-            // Event type (shortened)
-            val shortType = record.eventType
-                .replace("WINDOW_", "")
-            binding.tvEventType.text = shortType
+            binding.tvCharCount.text = "${record.textLength} chars"
 
             // Click listener
             binding.root.setOnClickListener {

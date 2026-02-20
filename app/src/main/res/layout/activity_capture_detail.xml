@@ -18,14 +18,37 @@
         android:padding="16dp"
         app:layout_constraintTop_toTopOf="parent">
 
-        <TextView
-            android:id="@+id/tvTitle"
-            android:layout_width="wrap_content"
+        <!-- Row 1: Title + Star -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="@color/white"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            tools:text="Tangkapan #47" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tvTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="@color/white"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                tools:text="Tangkapan #47" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnStar"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:text="\u2606"
+                android:textSize="22sp"
+                android:textColor="@color/white"
+                android:minWidth="0dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:padding="0dp" />
+
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tvTimestamp"
@@ -52,17 +75,91 @@
                 tools:text="Karakter: 285" />
 
             <TextView
-                android:id="@+id/tvAppPackage"
+                android:id="@+id/tvEventType"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="@color/white"
-                android:textSize="11sp"
+                android:textSize="12sp"
                 android:alpha="0.8"
-                tools:text="com.shopee.foody.driver.id" />
+                tools:text="VIEW_CLICKED" />
+
+        </LinearLayout>
+
+        <!-- Tag Row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnTag"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="@string/btn_add_tag"
+                android:textColor="@color/white"
+                android:textSize="12sp"
+                app:strokeColor="@color/white"
+                app:iconSize="16dp" />
+
+            <TextView
+                android:id="@+id/tvCurrentTag"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textColor="@color/white"
+                android:textSize="13sp"
+                android:visibility="gone"
+                tools:text="bid-manual"
+                tools:visibility="visible" />
 
         </LinearLayout>
 
     </LinearLayout>
+
+    <!-- Note Card (shown when note exists) -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/cardNote"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginTop="8dp"
+        app:cardBackgroundColor="@color/note_background"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="1dp"
+        android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/headerLayout"
+        tools:visibility="visible">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="\uD83D\uDCDD Catatan"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="@color/text_secondary" />
+
+            <TextView
+                android:id="@+id/tvNote"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="@color/text_primary"
+                android:textSize="13sp"
+                tools:text="Halaman ini punya jarak pickup+dropoff, hilang setelah diterima." />
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
 
     <!-- Scrollable Content -->
     <ScrollView
@@ -70,7 +167,7 @@
         android:layout_height="0dp"
         android:fillViewport="true"
         app:layout_constraintBottom_toTopOf="@id/bottomButtons"
-        app:layout_constraintTop_toBottomOf="@id/headerLayout">
+        app:layout_constraintTop_toBottomOf="@id/cardNote">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -104,7 +201,7 @@
                     android:textColor="@color/text_primary"
                     android:textIsSelectable="true"
                     android:textSize="14sp"
-                    tools:text="Trip #6VUS\nOrder Details\nPickup\nKomplek Taman Duta Mas..." />
+                    tools:text="TEXT: Terima8s\nCLASS: android.widget.TextView\nID: ...btntext" />
 
             </com.google.android.material.card.MaterialCardView>
 
@@ -148,16 +245,6 @@
 
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- Event Type Info -->
-            <TextView
-                android:id="@+id/tvEventType"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp"
-                tools:text="Event: WINDOW_STATE_CHANGED" />
-
         </LinearLayout>
 
     </ScrollView>
@@ -178,8 +265,20 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginEnd="8dp"
-            android:text="@string/btn_copy_text" />
+            android:layout_marginEnd="4dp"
+            android:text="@string/btn_copy_text"
+            android:textSize="12sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnNote"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:text="@string/btn_add_note"
+            android:textSize="12sp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnBack"
@@ -187,7 +286,9 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="@string/btn_back" />
+            android:layout_marginStart="4dp"
+            android:text="@string/btn_back"
+            android:textSize="12sp" />
 
     </LinearLayout>
 
