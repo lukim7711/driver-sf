@@ -3,29 +3,43 @@ package com.driversfpoc.screenreader.ui
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.Observer
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.driversfpoc.screenreader.R
 import com.driversfpoc.screenreader.data.CaptureRepository
+import com.driversfpoc.screenreader.data.model.CaptureRecord
 import com.driversfpoc.screenreader.databinding.ActivityMainBinding
 import com.driversfpoc.screenreader.service.ScreenReaderService
 
 /**
- * Halaman 1 — Daftar Tangkapan
+ * Halaman 1 \u2014 Dashboard utama
  *
  * Menampilkan:
- * - Status service (aktif/tidak aktif)
- * - Jumlah tangkapan hari ini
- * - RecyclerView daftar semua tangkapan (terbaru di atas)
- * - Tombol: Aktifkan/Nonaktifkan, Hapus Semua Log
+ * - Status service (aktif/tidak)
+ * - Search bar untuk pencarian teks di log
+ * - Filter chips: Semua, Page, Click, Update, Starred
+ * - Daftar tangkapan terbaru (RecyclerView)
+ * - Tombol: Hapus Log, Nonaktifkan
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var repository: CaptureRepository
     private lateinit var adapter: CaptureAdapter
+
+    // Filter state
+    private var activeFilter: String? = null // null = semua
+    private var searchKeyword: String = ""
+
+    // Observer tracking agar bisa di-remove saat filter berubah
+    private var currentLiveData: LiveData<List<CaptureRecord>>? = null
+    private var currentObserver: Observer<List<CaptureRecord>>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,7 +50,10 @@ class MainActivity : AppCompatActivity() {
 
         setupRecyclerView()
         setupButtons()
-        observeData()
+        setupFilterChips()
+        setupSearch()
+        applyFilter()
+        observeTotalCount()
     }
 
     override fun onResume() {
@@ -44,13 +61,12 @@ class MainActivity : AppCompatActivity() {
         updateServiceStatus()
     }
 
-    // ──────────────────────────────────────────────
+    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     // Setup
-    // ──────────────────────────────────────────────
+    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
     private fun setupRecyclerView() {
         adapter = CaptureAdapter { record ->
-            // Tap item → buka detail
             val intent = Intent(this, CaptureDetailActivity::class.java).apply {
                 putExtra(CaptureDetailActivity.EXTRA_CAPTURE_ID, record.id)
             }
@@ -61,34 +77,94 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupButtons() {
-        // Tombol Aktifkan → buka Accessibility Settings
         binding.btnEnable.setOnClickListener {
-            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-            startActivity(intent)
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
 
-        // Tombol Nonaktifkan → buka Accessibility Settings (user matikan manual)
         binding.btnDisable.setOnClickListener {
-            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-            startActivity(intent)
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
 
-        // Tombol Hapus Semua Log
         binding.btnClearLogs.setOnClickListener {
             showClearConfirmation()
         }
     }
 
-    // ──────────────────────────────────────────────
-    // Observe Data
-    // ──────────────────────────────────────────────
+    private fun setupFilterChips() {
+        binding.chipAll.setOnClickListener {
+            activeFilter = null
+            applyFilter()
+        }
+        binding.chipPage.setOnClickListener {
+            activeFilter = "WINDOW_STATE_CHANGED"
+            applyFilter()
+        }
+        binding.chipClick.setOnClickListener {
+            activeFilter = "VIEW_CLICKED"
+            applyFilter()
+        }
+        binding.chipUpdate.setOnClickListener {
+            activeFilter = "WINDOW_CONTENT_CHANGED"
+            applyFilter()
+        }
+        binding.chipStarred.setOnClickListener {
+            activeFilter = "STARRED"
+            applyFilter()
+        }
+    }
 
-    private fun observeData() {
-        // Observe daftar tangkapan (LiveData → auto-update RecyclerView)
-        repository.getAllDesc().observe(this) { captures ->
+    private fun setupSearch() {
+        binding.etSearch.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                searchKeyword = s?.toString()?.trim() ?: ""
+                applyFilter()
+            }
+        })
+    }
+
+    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    // Data Observation
+    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+    private fun observeTotalCount() {
+        repository.getTotalCount().observe(this) { count ->
+            binding.tvCaptureCount.text = getString(R.string.capture_today, count ?: 0)
+        }
+    }
+
+    /**
+     * Menerapkan filter aktif + keyword pencarian.
+     * Melepas observer lama dan memasang observer baru sesuai kombinasi filter.
+     */
+    private fun applyFilter() {
+        // Remove previous observer
+        currentLiveData?.let { ld ->
+            currentObserver?.let { obs -> ld.removeObserver(obs) }
+        }
+
+        // Tentukan LiveData berdasarkan kombinasi filter + search
+        val liveData: LiveData<List<CaptureRecord>> = when {
+            activeFilter == "STARRED" -> {
+                repository.getStarred()
+            }
+            searchKeyword.isNotBlank() && activeFilter != null -> {
+                repository.searchByTextAndType(searchKeyword, activeFilter!!)
+            }
+            searchKeyword.isNotBlank() -> {
+                repository.searchByText(searchKeyword)
+            }
+            activeFilter != null -> {
+                repository.getByEventType(activeFilter!!)
+            }
+            else -> {
+                repository.getAllDesc()
+            }
+        }
+
+        val observer = Observer<List<CaptureRecord>> { captures ->
             adapter.submitList(captures)
-
-            // Show/hide empty state
             if (captures.isEmpty()) {
                 binding.tvEmpty.visibility = View.VISIBLE
                 binding.recyclerCaptures.visibility = View.GONE
@@ -98,19 +174,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Observe total count
-        repository.getTotalCount().observe(this) { count ->
-            binding.tvCaptureCount.text = getString(R.string.capture_today, count ?: 0)
-        }
+        liveData.observe(this, observer)
+        currentLiveData = liveData
+        currentObserver = observer
     }
 
-    // ──────────────────────────────────────────────
+    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     // UI Updates
-    // ──────────────────────────────────────────────
+    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
     private fun updateServiceStatus() {
         val isActive = ScreenReaderService.isRunning
-
         if (isActive) {
             binding.tvStatus.text = getString(R.string.status_active)
             binding.btnEnable.visibility = View.GONE

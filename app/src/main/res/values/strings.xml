@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">SF Screen Reader</string>
-    <string name="accessibility_service_description">Membaca teks yang tampil di layar ShopeeFood Driver untuk keperluan logging dan verifikasi data.</string>
+    <string name="accessibility_service_description">Membaca teks dan merekam klik di layar ShopeeFood Driver untuk keperluan logging dan verifikasi data.</string>
     <string name="btn_enable_reader">Aktifkan Screen Reader</string>
     <string name="btn_disable_reader">Nonaktifkan Screen Reader</string>
     <string name="btn_clear_logs">Hapus Semua Log</string>
     <string name="btn_copy_text">Salin Teks</string>
     <string name="btn_back">Kembali</string>
     <string name="btn_toggle_node_tree">Tampilkan/Sembunyikan Node Tree</string>
+    <string name="btn_add_tag">\uD83C\uDFF7 Tag</string>
+    <string name="btn_add_note">\uD83D\uDCDD Catatan</string>
     <string name="status_active">\u2705 Screen Reader Aktif</string>
     <string name="status_inactive">\u274c Screen Reader Tidak Aktif</string>
-    <string name="capture_today">Hari ini: %d tangkapan</string>
+    <string name="capture_today">Total: %d tangkapan</string>
     <string name="capture_chars">Teks: %d karakter</string>
     <string name="notification_title">Screen Reader aktif</string>
     <string name="notification_text">%d tangkapan hari ini</string>
@@ -23,4 +25,13 @@
     <string name="confirm_clear_message">Semua tangkapan akan dihapus. Tindakan ini tidak bisa dibatalkan.</string>
     <string name="confirm_yes">Hapus</string>
     <string name="confirm_no">Batal</string>
+    <string name="search_hint">Cari teks di log\u2026</string>
+    <string name="filter_all">Semua</string>
+    <string name="filter_page">\uD83D\uDCF1 Page</string>
+    <string name="filter_click">\uD83D\uDD8B Click</string>
+    <string name="filter_update">\uD83D\uDCDD Update</string>
+    <string name="filter_starred">\u2B50 Starred</string>
+    <string name="dialog_tag_title">Pilih Tag</string>
+    <string name="dialog_clear_tag">Hapus Tag</string>
+    <string name="dialog_note_title">Catatan Riset</string>
 </resources>
