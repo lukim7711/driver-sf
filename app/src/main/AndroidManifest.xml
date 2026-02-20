@@ -2,7 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Foreground Service permission (Android 9+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -27,8 +26,14 @@
             </intent-filter>
         </activity>
 
-        <!-- Detail Activity -->
+        <!-- Capture Detail Activity -->
         <activity android:name=".ui.CaptureDetailActivity" />
+
+        <!-- Flow Board List Activity -->
+        <activity android:name=".ui.FlowBoardListActivity" />
+
+        <!-- Flow Board Detail Activity -->
+        <activity android:name=".ui.FlowBoardDetailActivity" />
 
         <!-- Accessibility Service -->
         <service

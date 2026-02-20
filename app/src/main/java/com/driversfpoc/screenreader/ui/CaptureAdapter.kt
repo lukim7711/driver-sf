@@ -14,12 +14,6 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-/**
- * RecyclerView Adapter untuk daftar tangkapan.
- * Menggunakan ListAdapter + DiffUtil untuk performa optimal.
- *
- * v2: Ditambahkan event badge berwarna, star icon, tag chip, smart preview.
- */
 class CaptureAdapter(
     private val onItemClick: (CaptureRecord) -> Unit
 ) : ListAdapter<CaptureRecord, CaptureAdapter.ViewHolder>(DiffCallback) {
@@ -44,7 +38,7 @@ class CaptureAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
 
         fun bind(record: CaptureRecord) {
-            // Event type badge with color
+            // Event badge with color
             val (badgeText, badgeColor) = when (record.eventType) {
                 "VIEW_CLICKED" -> "\uD83D\uDD8B CLICK" to "#FF6B35"
                 "VIEW_SELECTED" -> "\uD83D\uDD18 SELECT" to "#9C27B0"
@@ -67,8 +61,6 @@ class CaptureAdapter(
                 "--:--:--"
             }
             binding.tvTime.text = time
-
-            // Capture number (compact)
             binding.tvCaptureNumber.text = "#${record.id}"
 
             // Star
@@ -88,24 +80,23 @@ class CaptureAdapter(
                 binding.tvTag.visibility = View.GONE
             }
 
-            // Smart preview based on event type
+            // Smart preview: 3 baris bermakna untuk snapshot, info langsung untuk klik
             val preview = if (record.eventType in listOf("VIEW_CLICKED", "VIEW_SELECTED")) {
-                // For clicks, show the click info directly
-                record.plainText.take(120)
+                // Klik: tampilkan info klik langsung
+                record.plainText.take(150)
             } else {
-                // For snapshots, show first meaningful line
+                // Snapshot: gabung 3 baris bermakna dengan bullet
                 record.plainText
                     .lines()
-                    .firstOrNull { it.length > 5 }
-                    ?.take(120)
-                    ?: record.plainText.take(120)
+                    .filter { it.length > 3 }
+                    .take(3)
+                    .joinToString(" \u2022 ")
+                    .take(150)
             }
             binding.tvPreview.text = preview
 
-            // Character count
-            binding.tvCharCount.text = "${record.textLength} chars"
+            binding.tvCharCount.text = "${record.textLength} chars \u2022 \u2190 swipe hapus"
 
-            // Click listener
             binding.root.setOnClickListener {
                 onItemClick(record)
             }
@@ -113,10 +104,7 @@ class CaptureAdapter(
     }
 
     companion object DiffCallback : DiffUtil.ItemCallback<CaptureRecord>() {
-        override fun areItemsTheSame(old: CaptureRecord, new: CaptureRecord) =
-            old.id == new.id
-
-        override fun areContentsTheSame(old: CaptureRecord, new: CaptureRecord) =
-            old == new
+        override fun areItemsTheSame(old: CaptureRecord, new: CaptureRecord) = old.id == new.id
+        override fun areContentsTheSame(old: CaptureRecord, new: CaptureRecord) = old == new
     }
 }
