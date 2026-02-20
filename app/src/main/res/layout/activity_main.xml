@@ -69,7 +69,7 @@
 
     </com.google.android.material.textfield.TextInputLayout>
 
-    <!-- Filter Chips -->
+    <!-- Filter Chips: Semua, Snapshot, Click, Starred -->
     <HorizontalScrollView
         android:id="@+id/chipScrollView"
         android:layout_width="match_parent"
@@ -95,11 +95,11 @@
                 android:text="@string/filter_all" />
 
             <com.google.android.material.chip.Chip
-                android:id="@+id/chipPage"
+                android:id="@+id/chipSnapshot"
                 style="@style/Widget.MaterialComponents.Chip.Choice"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/filter_page" />
+                android:text="@string/filter_snapshot" />
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chipClick"
@@ -107,13 +107,6 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/filter_click" />
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chipUpdate"
-                style="@style/Widget.MaterialComponents.Chip.Choice"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/filter_update" />
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chipStarred"
@@ -126,7 +119,7 @@
 
     </HorizontalScrollView>
 
-    <!-- Enable Button (shown when service is NOT active) -->
+    <!-- Enable Button -->
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnEnable"
         android:layout_width="match_parent"
@@ -162,7 +155,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/chipScrollView" />
 
-    <!-- Bottom Buttons: 3 tombol -->
+    <!-- Bottom Buttons -->
     <LinearLayout
         android:id="@+id/bottomButtons"
         android:layout_width="match_parent"

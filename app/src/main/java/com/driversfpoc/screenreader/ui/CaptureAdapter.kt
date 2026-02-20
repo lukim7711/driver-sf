@@ -38,12 +38,12 @@ class CaptureAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
 
         fun bind(record: CaptureRecord) {
-            // Event badge with color
+            // Event badge: PAGE + UPDATE digabung jadi SNAPSHOT
             val (badgeText, badgeColor) = when (record.eventType) {
                 "VIEW_CLICKED" -> "\uD83D\uDD8B CLICK" to "#FF6B35"
                 "VIEW_SELECTED" -> "\uD83D\uDD18 SELECT" to "#9C27B0"
-                "WINDOW_STATE_CHANGED" -> "\uD83D\uDCF1 PAGE" to "#4CAF50"
-                "WINDOW_CONTENT_CHANGED" -> "\uD83D\uDCDD UPDATE" to "#2196F3"
+                "WINDOW_STATE_CHANGED",
+                "WINDOW_CONTENT_CHANGED" -> "\uD83D\uDCF8 SNAPSHOT" to "#4CAF50"
                 else -> "\u2753 OTHER" to "#757575"
             }
             binding.tvEventBadge.text = badgeText
@@ -82,10 +82,8 @@ class CaptureAdapter(
 
             // Smart preview: 3 baris bermakna untuk snapshot, info langsung untuk klik
             val preview = if (record.eventType in listOf("VIEW_CLICKED", "VIEW_SELECTED")) {
-                // Klik: tampilkan info klik langsung
                 record.plainText.take(150)
             } else {
-                // Snapshot: gabung 3 baris bermakna dengan bullet
                 record.plainText
                     .lines()
                     .filter { it.length > 3 }

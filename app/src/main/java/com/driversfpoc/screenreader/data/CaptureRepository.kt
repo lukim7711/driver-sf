@@ -31,7 +31,6 @@ class CaptureRepository private constructor(context: Context) {
         executor.execute { dao.update(record) }
     }
 
-    /** Hapus 1 record berdasarkan ID */
     fun deleteById(id: Long) {
         executor.execute { dao.deleteById(id) }
     }
@@ -43,11 +42,18 @@ class CaptureRepository private constructor(context: Context) {
     fun getByEventType(eventType: String): LiveData<List<CaptureRecord>> =
         dao.getByEventType(eventType)
 
+    /** Snapshot = PAGE + UPDATE */
+    fun getSnapshots(): LiveData<List<CaptureRecord>> = dao.getSnapshots()
+
     fun searchByText(keyword: String): LiveData<List<CaptureRecord>> =
         dao.searchByText(keyword)
 
     fun searchByTextAndType(keyword: String, eventType: String): LiveData<List<CaptureRecord>> =
         dao.searchByTextAndType(keyword, eventType)
+
+    /** Search di dalam snapshot saja */
+    fun searchSnapshotsByText(keyword: String): LiveData<List<CaptureRecord>> =
+        dao.searchSnapshotsByText(keyword)
 
     fun getStarred(): LiveData<List<CaptureRecord>> = dao.getStarred()
 

@@ -23,18 +23,25 @@ interface CaptureDao {
     @Query("SELECT * FROM captures WHERE id = :id")
     fun getById(id: Long): CaptureRecord?
 
-    /** Hapus 1 record berdasarkan ID */
     @Query("DELETE FROM captures WHERE id = :id")
     fun deleteById(id: Long)
 
     @Query("SELECT * FROM captures WHERE event_type = :eventType ORDER BY id DESC")
     fun getByEventType(eventType: String): LiveData<List<CaptureRecord>>
 
+    /** Snapshot = PAGE + UPDATE (kedua event type ini sama-sama full screen snapshot) */
+    @Query("SELECT * FROM captures WHERE event_type IN ('WINDOW_STATE_CHANGED', 'WINDOW_CONTENT_CHANGED') ORDER BY id DESC")
+    fun getSnapshots(): LiveData<List<CaptureRecord>>
+
     @Query("SELECT * FROM captures WHERE plain_text LIKE '%' || :keyword || '%' ORDER BY id DESC")
     fun searchByText(keyword: String): LiveData<List<CaptureRecord>>
 
     @Query("SELECT * FROM captures WHERE event_type = :eventType AND plain_text LIKE '%' || :keyword || '%' ORDER BY id DESC")
     fun searchByTextAndType(keyword: String, eventType: String): LiveData<List<CaptureRecord>>
+
+    /** Search di dalam snapshot saja (PAGE + UPDATE) */
+    @Query("SELECT * FROM captures WHERE event_type IN ('WINDOW_STATE_CHANGED', 'WINDOW_CONTENT_CHANGED') AND plain_text LIKE '%' || :keyword || '%' ORDER BY id DESC")
+    fun searchSnapshotsByText(keyword: String): LiveData<List<CaptureRecord>>
 
     @Query("SELECT * FROM captures WHERE is_starred = 1 ORDER BY id DESC")
     fun getStarred(): LiveData<List<CaptureRecord>>

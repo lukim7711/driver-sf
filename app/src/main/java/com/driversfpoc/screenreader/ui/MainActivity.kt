@@ -51,10 +51,6 @@ class MainActivity : AppCompatActivity() {
         updateServiceStatus()
     }
 
-    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-    // Setup
-    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-
     private fun setupRecyclerView() {
         adapter = CaptureAdapter { record ->
             val intent = Intent(this, CaptureDetailActivity::class.java).apply {
@@ -66,11 +62,6 @@ class MainActivity : AppCompatActivity() {
         binding.recyclerCaptures.adapter = adapter
     }
 
-    /**
-     * Swipe ke kiri untuk hapus log.
-     * Menampilkan dialog konfirmasi sebelum hapus.
-     * Jika batal, item dikembalikan ke posisi semula.
-     */
     private fun setupSwipeToDelete() {
         val callback = object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
             override fun onMove(
@@ -121,16 +112,12 @@ class MainActivity : AppCompatActivity() {
             activeFilter = null
             applyFilter()
         }
-        binding.chipPage.setOnClickListener {
-            activeFilter = "WINDOW_STATE_CHANGED"
+        binding.chipSnapshot.setOnClickListener {
+            activeFilter = "SNAPSHOT"
             applyFilter()
         }
         binding.chipClick.setOnClickListener {
             activeFilter = "VIEW_CLICKED"
-            applyFilter()
-        }
-        binding.chipUpdate.setOnClickListener {
-            activeFilter = "WINDOW_CONTENT_CHANGED"
             applyFilter()
         }
         binding.chipStarred.setOnClickListener {
@@ -150,10 +137,6 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-    // Data
-    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-
     private fun observeTotalCount() {
         repository.getTotalCount().observe(this) { count ->
             binding.tvCaptureCount.text = getString(R.string.capture_today, count ?: 0)
@@ -167,6 +150,9 @@ class MainActivity : AppCompatActivity() {
 
         val liveData: LiveData<List<CaptureRecord>> = when {
             activeFilter == "STARRED" -> repository.getStarred()
+            activeFilter == "SNAPSHOT" && searchKeyword.isNotBlank() ->
+                repository.searchSnapshotsByText(searchKeyword)
+            activeFilter == "SNAPSHOT" -> repository.getSnapshots()
             searchKeyword.isNotBlank() && activeFilter != null ->
                 repository.searchByTextAndType(searchKeyword, activeFilter!!)
             searchKeyword.isNotBlank() -> repository.searchByText(searchKeyword)
@@ -189,10 +175,6 @@ class MainActivity : AppCompatActivity() {
         currentLiveData = liveData
         currentObserver = observer
     }
-
-    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-    // UI
-    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
     private fun updateServiceStatus() {
         val isActive = ScreenReaderService.isRunning

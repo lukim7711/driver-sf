@@ -31,9 +31,8 @@
     <string name="confirm_no">Batal</string>
     <string name="search_hint">Cari teks di log\u2026</string>
     <string name="filter_all">Semua</string>
-    <string name="filter_page">\uD83D\uDCF1 Page</string>
+    <string name="filter_snapshot">\uD83D\uDCF8 Snapshot</string>
     <string name="filter_click">\uD83D\uDD8B Click</string>
-    <string name="filter_update">\uD83D\uDCDD Update</string>
     <string name="filter_starred">\u2B50 Starred</string>
     <string name="dialog_tag_title">Pilih Tag</string>
     <string name="dialog_clear_tag">Hapus Tag</string>

@@ -13,10 +13,6 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-/**
- * Adapter untuk item di dalam Flow Board.
- * Setiap item menampilkan: drag handle, posisi, event badge, preview, dan tombol hapus.
- */
 class FlowBoardItemAdapter(
     private val onRemoveClick: (FlowBoardItemWithCapture) -> Unit,
     private val onItemClick: (FlowBoardItemWithCapture) -> Unit
@@ -44,15 +40,14 @@ class FlowBoardItemAdapter(
         fun bind(item: FlowBoardItemWithCapture, position: Int) {
             val capture = item.capture
 
-            // Position number (1-based)
             binding.tvPosition.text = "${position + 1}."
 
-            // Event type badge with color
+            // Event badge: PAGE + UPDATE digabung jadi SNAPSHOT
             val (badgeText, badgeColor) = when (capture.eventType) {
                 "VIEW_CLICKED" -> "\uD83D\uDD8B CLICK" to "#FF6B35"
                 "VIEW_SELECTED" -> "\uD83D\uDD18 SELECT" to "#9C27B0"
-                "WINDOW_STATE_CHANGED" -> "\uD83D\uDCF1 PAGE" to "#4CAF50"
-                "WINDOW_CONTENT_CHANGED" -> "\uD83D\uDCDD UPDATE" to "#2196F3"
+                "WINDOW_STATE_CHANGED",
+                "WINDOW_CONTENT_CHANGED" -> "\uD83D\uDCF8 SNAPSHOT" to "#4CAF50"
                 else -> "\u2753 OTHER" to "#757575"
             }
             binding.tvEventBadge.text = badgeText
@@ -62,7 +57,6 @@ class FlowBoardItemAdapter(
             }
             binding.tvEventBadge.background = badgeBg
 
-            // Time
             val time = try {
                 val instant = Instant.parse(capture.timestamp)
                 timeFormatter.format(instant)
@@ -70,11 +64,8 @@ class FlowBoardItemAdapter(
                 "--:--:--"
             }
             binding.tvTime.text = time
-
-            // Capture ID reference
             binding.tvCaptureId.text = "#${capture.id}"
 
-            // Smart preview: gabung 3 baris bermakna
             val preview = if (capture.eventType in listOf("VIEW_CLICKED", "VIEW_SELECTED")) {
                 capture.plainText.lines().firstOrNull()?.take(100) ?: ""
             } else {
@@ -87,12 +78,10 @@ class FlowBoardItemAdapter(
             }
             binding.tvPreview.text = preview
 
-            // Remove from flow board
             binding.btnRemove.setOnClickListener {
                 onRemoveClick(item)
             }
 
-            // Tap to see full capture detail
             binding.root.setOnClickListener {
                 onItemClick(item)
             }
