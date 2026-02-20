@@ -12,4 +12,10 @@
     <color name="divider">#BDBDBD</color>
     <color name="status_active">#4CAF50</color>
     <color name="status_inactive">#F44336</color>
+    <color name="badge_click">#FF6B35</color>
+    <color name="badge_select">#9C27B0</color>
+    <color name="badge_page">#4CAF50</color>
+    <color name="badge_update">#2196F3</color>
+    <color name="tag_background">#E8F5E9</color>
+    <color name="note_background">#FFF8E1</color>
 </resources>

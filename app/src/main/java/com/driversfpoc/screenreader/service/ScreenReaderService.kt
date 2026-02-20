@@ -26,10 +26,10 @@ import java.util.concurrent.Executors
  * AccessibilityService yang membaca semua teks di layar ShopeeFood Driver.
  *
  * Cara kerja:
- * 1. Mendengarkan event WINDOW_STATE_CHANGED dan WINDOW_CONTENT_CHANGED
- *    dari package com.shopee.foody.driver.id
- * 2. Saat event diterima, traverse seluruh node tree secara rekursif
- * 3. Mengambil getText() dan getContentDescription() dari setiap node
+ * 1. Mendengarkan event WINDOW_STATE_CHANGED, WINDOW_CONTENT_CHANGED,
+ *    VIEW_CLICKED, dan VIEW_SELECTED dari package com.shopee.foody.driver.id
+ * 2. Untuk klik: merekam detail elemen yang diklik (tanpa debounce)
+ * 3. Untuk window/content change: traverse seluruh node tree secara rekursif
  * 4. Menyimpan plain text (urut by bounds) + node tree JSON ke database
  */
 class ScreenReaderService : AccessibilityService() {
@@ -64,7 +64,6 @@ class ScreenReaderService : AccessibilityService() {
         Log.d(TAG, "onServiceConnected")
         isRunning = true
 
-        // Start foreground notification FIRST (sebelum operasi lain)
         try {
             startForegroundNotification()
             Log.d(TAG, "Foreground notification started")
@@ -72,7 +71,6 @@ class ScreenReaderService : AccessibilityService() {
             Log.e(TAG, "Failed to start foreground notification", e)
         }
 
-        // Load today count di BACKGROUND thread (Room tidak boleh di main thread)
         executor.execute {
             try {
                 loadTodayCount()
@@ -86,86 +84,25 @@ class ScreenReaderService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
 
-        // Hanya proses event dari ShopeeFood Driver
         val packageName = event.packageName?.toString() ?: return
         if (packageName != TARGET_PACKAGE) return
 
-        // Debounce: abaikan event yang terlalu cepat
-        val now = System.currentTimeMillis()
-        if (now - lastCaptureTime < DEBOUNCE_MS) return
-
-        // Ambil root node
-        val rootNode = try {
-            rootInActiveWindow
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to get rootInActiveWindow", e)
-            null
-        } ?: return
-
-        try {
-            // Traverse node tree
-            val nodeDataList = mutableListOf<NodeData>()
-            traverseNode(rootNode, nodeDataList, 0)
-
-            // Extract plain text, sorted by bounds (top-to-bottom, left-to-right)
-            val sortedNodes = nodeDataList
-                .filter { it.text.isNotBlank() || it.contentDescription.isNotBlank() }
-                .sortedWith(compareBy({ it.boundsTop }, { it.boundsLeft }))
-
-            val plainText = sortedNodes.joinToString("\n") { node ->
-                buildString {
-                    if (node.text.isNotBlank()) append(node.text)
-                    if (node.contentDescription.isNotBlank()) {
-                        if (isNotBlank()) append(" ")
-                        append("[${node.contentDescription}]")
-                    }
-                }
-            }.trim()
-
-            // Skip jika teks kosong
-            if (plainText.isBlank()) return
-
-            // Skip jika teks sama persis dengan tangkapan sebelumnya (deduplicate)
-            val currentHash = plainText.hashCode()
-            if (currentHash == lastCaptureHash) return
-
-            // Build node tree JSON
-            val nodeTreeJson = gson.toJson(nodeDataList)
-
-            // Determine event type
-            val eventType = when (event.eventType) {
-                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> "WINDOW_STATE_CHANGED"
-                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> "WINDOW_CONTENT_CHANGED"
-                else -> "OTHER"
+        when (event.eventType) {
+            AccessibilityEvent.TYPE_VIEW_CLICKED,
+            AccessibilityEvent.TYPE_VIEW_SELECTED -> {
+                // Klik/Select: rekam elemen yang diklik — TANPA debounce
+                captureClickEvent(event)
             }
-
-            // Simpan ke database (di background thread via repository)
-            val record = CaptureRecord(
-                timestamp = Instant.now().toString(),
-                plainText = plainText,
-                nodeTreeJson = nodeTreeJson,
-                eventType = eventType,
-                textLength = plainText.length
-            )
-
-            repository.insert(record)
-
-            // Update state
-            lastCaptureTime = now
-            lastCaptureHash = currentHash
-            captureCountToday++
-
-            Log.d(TAG, "Captured #$captureCountToday: ${plainText.take(50)}...")
-
-            // Update notification di background
-            try {
-                updateNotification()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to update notification", e)
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                // Pindah halaman: selalu rekam full snapshot (reset debounce)
+                captureFullSnapshot(event, "WINDOW_STATE_CHANGED")
             }
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Error processing accessibility event", e)
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                // Konten berubah: rekam dengan debounce
+                val now = System.currentTimeMillis()
+                if (now - lastCaptureTime < DEBOUNCE_MS) return
+                captureFullSnapshot(event, "WINDOW_CONTENT_CHANGED")
+            }
         }
     }
 
@@ -181,14 +118,136 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     // ──────────────────────────────────────────────
-    // Node Tree Traversal
+    // Click Event Capture
     // ──────────────────────────────────────────────
 
     /**
-     * Traverse node tree secara rekursif.
-     * Setiap node diambil: className, text, contentDescription,
-     * resourceId, bounds, dan childCount.
+     * Merekam detail elemen yang diklik oleh user.
+     * Tidak menggunakan debounce karena setiap klik adalah aksi penting.
      */
+    private fun captureClickEvent(event: AccessibilityEvent) {
+        val source = try {
+            event.source
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get event source", e)
+            null
+        } ?: return
+
+        try {
+            val bounds = Rect()
+            source.getBoundsInScreen(bounds)
+
+            val clickInfo = buildString {
+                appendLine("TEXT: ${source.text ?: "(kosong)"}")
+                appendLine("CLASS: ${source.className ?: "(null)"}")
+                appendLine("ID: ${source.viewIdResourceName ?: "(null)"}")
+                appendLine("DESC: ${source.contentDescription ?: "(null)"}")
+                appendLine("BOUNDS: [${bounds.left},${bounds.top}][${bounds.right},${bounds.bottom}]")
+                appendLine("CLICKABLE: ${source.isClickable}")
+                appendLine("ENABLED: ${source.isEnabled}")
+                appendLine("CHECKED: ${source.isChecked}")
+            }
+
+            val eventType = when (event.eventType) {
+                AccessibilityEvent.TYPE_VIEW_CLICKED -> "VIEW_CLICKED"
+                AccessibilityEvent.TYPE_VIEW_SELECTED -> "VIEW_SELECTED"
+                else -> "OTHER"
+            }
+
+            val record = CaptureRecord(
+                timestamp = Instant.now().toString(),
+                plainText = clickInfo.trim(),
+                nodeTreeJson = "",
+                eventType = eventType,
+                textLength = clickInfo.trim().length
+            )
+
+            repository.insert(record)
+            captureCountToday++
+
+            Log.d(TAG, "Click captured: ${source.text} [${source.viewIdResourceName}]")
+
+            try {
+                updateNotification()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to update notification", e)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error capturing click event", e)
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // Full Snapshot Capture
+    // ──────────────────────────────────────────────
+
+    /**
+     * Menangkap snapshot seluruh teks di layar.
+     * Digunakan untuk WINDOW_STATE_CHANGED dan WINDOW_CONTENT_CHANGED.
+     */
+    private fun captureFullSnapshot(event: AccessibilityEvent, eventType: String) {
+        val rootNode = try {
+            rootInActiveWindow
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get rootInActiveWindow", e)
+            null
+        } ?: return
+
+        try {
+            val nodeDataList = mutableListOf<NodeData>()
+            traverseNode(rootNode, nodeDataList, 0)
+
+            val sortedNodes = nodeDataList
+                .filter { it.text.isNotBlank() || it.contentDescription.isNotBlank() }
+                .sortedWith(compareBy({ it.boundsTop }, { it.boundsLeft }))
+
+            val plainText = sortedNodes.joinToString("\n") { node ->
+                buildString {
+                    if (node.text.isNotBlank()) append(node.text)
+                    if (node.contentDescription.isNotBlank()) {
+                        if (isNotBlank()) append(" ")
+                        append("[${node.contentDescription}]")
+                    }
+                }
+            }.trim()
+
+            if (plainText.isBlank()) return
+
+            val currentHash = plainText.hashCode()
+            if (currentHash == lastCaptureHash) return
+
+            val nodeTreeJson = gson.toJson(nodeDataList)
+
+            val record = CaptureRecord(
+                timestamp = Instant.now().toString(),
+                plainText = plainText,
+                nodeTreeJson = nodeTreeJson,
+                eventType = eventType,
+                textLength = plainText.length
+            )
+
+            repository.insert(record)
+
+            lastCaptureTime = System.currentTimeMillis()
+            lastCaptureHash = currentHash
+            captureCountToday++
+
+            Log.d(TAG, "Captured #$captureCountToday: ${plainText.take(50)}...")
+
+            try {
+                updateNotification()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to update notification", e)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing accessibility event", e)
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // Node Tree Traversal
+    // ──────────────────────────────────────────────
+
     private fun traverseNode(
         node: AccessibilityNodeInfo,
         result: MutableList<NodeData>,
@@ -212,7 +271,6 @@ class ScreenReaderService : AccessibilityService() {
             )
             result.add(nodeData)
 
-            // Recursive: traverse semua child nodes
             for (i in 0 until node.childCount) {
                 val child = try {
                     node.getChild(i)
@@ -233,7 +291,6 @@ class ScreenReaderService : AccessibilityService() {
     private fun startForegroundNotification() {
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            // Android 14+ requires foreground service type
             startForeground(
                 FOREGROUND_NOTIFICATION_ID,
                 notification,
@@ -285,10 +342,6 @@ class ScreenReaderService : AccessibilityService() {
     }
 }
 
-/**
- * Data class untuk menyimpan informasi setiap node dalam tree.
- * Digunakan untuk plain text extraction dan JSON serialization.
- */
 data class NodeData(
     val className: String,
     val text: String,
