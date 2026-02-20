@@ -52,7 +52,7 @@
     <string name="export_copy">\uD83D\uDCCB Copy to Clipboard</string>
     <string name="export_save">\uD83D\uDCBE Simpan File .json</string>
     <string name="export_share_chooser">Kirim flow board via\u2026</string>
-    <string name="export_copied">JSON disalin! (%d karakter)</string>
+    <string name="export_copied">JSON disalin! (%s)</string>
     <string name="export_saved">File berhasil disimpan</string>
     <string name="export_save_failed">Gagal menyimpan file</string>
     <string name="export_empty">Tidak ada item untuk diekspor</string>
