@@ -10,7 +10,9 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.driversfpoc.screenreader.R
 import com.driversfpoc.screenreader.data.CaptureRepository
+import com.driversfpoc.screenreader.data.FlowBoardRepository
 import com.driversfpoc.screenreader.data.model.CaptureRecord
+import com.driversfpoc.screenreader.data.model.FlowBoard
 import com.driversfpoc.screenreader.databinding.ActivityCaptureDetailBinding
 import java.time.Instant
 import java.time.ZoneId
@@ -18,18 +20,6 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.Executors
 
-/**
- * Halaman 2 \u2014 Detail Tangkapan
- *
- * Menampilkan:
- * - Metadata: nomor, waktu, jumlah karakter, event type
- * - Star toggle (tandai penting)
- * - Tag selector (pilih dari preset atau ketik sendiri)
- * - Note card (catatan riset)
- * - Plain text lengkap
- * - Node tree JSON (toggle show/hide, hidden for click events)
- * - Tombol: Salin Teks, Catatan, Kembali
- */
 class CaptureDetailActivity : AppCompatActivity() {
 
     companion object {
@@ -38,6 +28,7 @@ class CaptureDetailActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityCaptureDetailBinding
     private lateinit var repository: CaptureRepository
+    private lateinit var flowBoardRepository: FlowBoardRepository
     private val executor = Executors.newSingleThreadExecutor()
 
     private val dateTimeFormatter = DateTimeFormatter
@@ -53,6 +44,7 @@ class CaptureDetailActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         repository = CaptureRepository.getInstance(applicationContext)
+        flowBoardRepository = FlowBoardRepository.getInstance(applicationContext)
 
         val captureId = intent.getLongExtra(EXTRA_CAPTURE_ID, -1)
         if (captureId == -1L) {
@@ -69,35 +61,27 @@ class CaptureDetailActivity : AppCompatActivity() {
     // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
     private fun setupButtons() {
-        // Salin Teks
         binding.btnCopyText.setOnClickListener {
             currentRecord?.let { copyToClipboard(it.plainText) }
         }
-
-        // Kembali
         binding.btnBack.setOnClickListener {
             finish()
         }
-
-        // Toggle Node Tree
         binding.btnToggleNodeTree.setOnClickListener {
             isNodeTreeVisible = !isNodeTreeVisible
             binding.cardNodeTree.visibility = if (isNodeTreeVisible) View.VISIBLE else View.GONE
         }
-
-        // Star
         binding.btnStar.setOnClickListener {
             toggleStar()
         }
-
-        // Tag
         binding.btnTag.setOnClickListener {
             showTagDialog()
         }
-
-        // Note
         binding.btnNote.setOnClickListener {
             showNoteDialog()
+        }
+        binding.btnAddToFlow.setOnClickListener {
+            showAddToFlowDialog()
         }
     }
 
@@ -108,22 +92,16 @@ class CaptureDetailActivity : AppCompatActivity() {
     private fun loadCapture(captureId: Long) {
         executor.execute {
             val record = repository.getById(captureId)
-
             if (record == null) {
                 runOnUiThread { finish() }
                 return@execute
             }
-
             currentRecord = record
-
-            runOnUiThread {
-                displayRecord(record)
-            }
+            runOnUiThread { displayRecord(record) }
         }
     }
 
     private fun displayRecord(record: CaptureRecord) {
-        // Header
         binding.tvTitle.text = getString(R.string.detail_title, record.id)
 
         val formattedTime = try {
@@ -136,10 +114,8 @@ class CaptureDetailActivity : AppCompatActivity() {
         binding.tvCharCount.text = getString(R.string.detail_chars, record.textLength)
         binding.tvEventType.text = record.eventType
 
-        // Star
         updateStarUI(record.isStarred)
 
-        // Tag
         if (record.tag.isNotBlank()) {
             binding.tvCurrentTag.text = record.tag
             binding.tvCurrentTag.visibility = View.VISIBLE
@@ -147,7 +123,6 @@ class CaptureDetailActivity : AppCompatActivity() {
             binding.tvCurrentTag.visibility = View.GONE
         }
 
-        // Note
         if (record.note.isNotBlank()) {
             binding.tvNote.text = record.note
             binding.cardNote.visibility = View.VISIBLE
@@ -155,10 +130,8 @@ class CaptureDetailActivity : AppCompatActivity() {
             binding.cardNote.visibility = View.GONE
         }
 
-        // Plain text
         binding.tvPlainText.text = record.plainText
 
-        // Node tree JSON (hide for click events since they don't have it)
         if (record.nodeTreeJson.isBlank()) {
             binding.btnToggleNodeTree.visibility = View.GONE
             binding.cardNodeTree.visibility = View.GONE
@@ -169,7 +142,7 @@ class CaptureDetailActivity : AppCompatActivity() {
     }
 
     // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-    // Star / Tag / Note Actions
+    // Star / Tag / Note
     // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
     private fun toggleStar() {
@@ -178,7 +151,6 @@ class CaptureDetailActivity : AppCompatActivity() {
         repository.update(updated)
         currentRecord = updated
         updateStarUI(updated.isStarred)
-
         val msg = if (updated.isStarred) "\u2B50 Ditandai penting" else "Tanda bintang dihapus"
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
@@ -189,12 +161,10 @@ class CaptureDetailActivity : AppCompatActivity() {
 
     private fun showTagDialog() {
         val record = currentRecord ?: return
-
         val commonTags = arrayOf(
             "bid-auto", "bid-manual", "order-list", "order-detail",
             "kerja-bagus", "riwayat", "insentif", "dibatalkan", "(ketik sendiri)"
         )
-
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.dialog_tag_title))
             .setItems(commonTags) { _, which ->
@@ -204,9 +174,7 @@ class CaptureDetailActivity : AppCompatActivity() {
                     applyTag(commonTags[which])
                 }
             }
-            .setNeutralButton(getString(R.string.dialog_clear_tag)) { _, _ ->
-                applyTag("")
-            }
+            .setNeutralButton(getString(R.string.dialog_clear_tag)) { _, _ -> applyTag("") }
             .setNegativeButton(getString(R.string.confirm_no), null)
             .show()
     }
@@ -216,16 +184,12 @@ class CaptureDetailActivity : AppCompatActivity() {
             hint = "Contoh: pickup-screen"
             setPadding(48, 32, 48, 16)
         }
-
         AlertDialog.Builder(this)
             .setTitle("Ketik Tag")
             .setView(editText)
             .setPositiveButton("Simpan") { _, _ ->
-                val tag = editText.text.toString().trim()
-                    .lowercase().replace(" ", "-")
-                if (tag.isNotBlank()) {
-                    applyTag(tag)
-                }
+                val tag = editText.text.toString().trim().lowercase().replace(" ", "-")
+                if (tag.isNotBlank()) applyTag(tag)
             }
             .setNegativeButton(getString(R.string.confirm_no), null)
             .show()
@@ -236,7 +200,6 @@ class CaptureDetailActivity : AppCompatActivity() {
         val updated = record.copy(tag = tag)
         repository.update(updated)
         currentRecord = updated
-
         if (tag.isNotBlank()) {
             binding.tvCurrentTag.text = tag
             binding.tvCurrentTag.visibility = View.VISIBLE
@@ -249,14 +212,12 @@ class CaptureDetailActivity : AppCompatActivity() {
 
     private fun showNoteDialog() {
         val record = currentRecord ?: return
-
         val editText = EditText(this).apply {
             hint = "Tulis catatan riset..."
             setText(record.note)
             minLines = 3
             setPadding(48, 32, 48, 16)
         }
-
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.dialog_note_title))
             .setView(editText)
@@ -265,7 +226,6 @@ class CaptureDetailActivity : AppCompatActivity() {
                 val updated = record.copy(note = note)
                 repository.update(updated)
                 currentRecord = updated
-
                 if (note.isNotBlank()) {
                     binding.tvNote.text = note
                     binding.cardNote.visibility = View.VISIBLE
@@ -282,6 +242,99 @@ class CaptureDetailActivity : AppCompatActivity() {
             }
             .setNegativeButton(getString(R.string.confirm_no), null)
             .show()
+    }
+
+    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    // Flow Board
+    // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+    /**
+     * Dialog untuk menambahkan capture ini ke Flow Board.
+     * - Jika sudah ada board: tampilkan list pilihan + opsi buat baru
+     * - Jika belum ada board: langsung tawarkan buat baru
+     */
+    private fun showAddToFlowDialog() {
+        val record = currentRecord ?: return
+
+        executor.execute {
+            val boards = flowBoardRepository.getAllBoardsSync()
+
+            runOnUiThread {
+                if (boards.isEmpty()) {
+                    showCreateBoardAndAddDialog(record.id)
+                } else {
+                    val options = boards.map { it.name }.toTypedArray() + "(Buat flow board baru)"
+
+                    AlertDialog.Builder(this)
+                        .setTitle(getString(R.string.dialog_add_to_flow_title))
+                        .setItems(options) { _, which ->
+                            if (which == options.size - 1) {
+                                showCreateBoardAndAddDialog(record.id)
+                            } else {
+                                val board = boards[which]
+                                addCaptureToBoard(board, record.id)
+                            }
+                        }
+                        .setNegativeButton(getString(R.string.confirm_no), null)
+                        .show()
+                }
+            }
+        }
+    }
+
+    private fun showCreateBoardAndAddDialog(captureId: Long) {
+        val layout = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(48, 32, 48, 16)
+        }
+        val nameInput = EditText(this).apply {
+            hint = "Nama flow, misal: Order Lifecycle SPX"
+            requestFocus()
+        }
+        val descInput = EditText(this).apply {
+            hint = "Deskripsi (opsional)"
+        }
+        layout.addView(nameInput)
+        layout.addView(descInput)
+
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.dialog_create_board_title))
+            .setView(layout)
+            .setPositiveButton("Buat & Tambahkan") { _, _ ->
+                val name = nameInput.text.toString().trim()
+                if (name.isBlank()) {
+                    Toast.makeText(this, "Nama tidak boleh kosong", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val board = FlowBoard(
+                    name = name,
+                    description = descInput.text.toString().trim(),
+                    createdAt = Instant.now().toString()
+                )
+                flowBoardRepository.insertBoard(board) { boardId ->
+                    flowBoardRepository.addCaptureToBoard(boardId, captureId) { success ->
+                        runOnUiThread {
+                            if (success) {
+                                Toast.makeText(this, "Ditambahkan ke \"$name\"", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }
+            }
+            .setNegativeButton(getString(R.string.confirm_no), null)
+            .show()
+    }
+
+    private fun addCaptureToBoard(board: FlowBoard, captureId: Long) {
+        flowBoardRepository.addCaptureToBoard(board.id, captureId) { success ->
+            runOnUiThread {
+                if (success) {
+                    Toast.makeText(this, "Ditambahkan ke \"${board.name}\"", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Sudah ada di flow board ini", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 
     // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500

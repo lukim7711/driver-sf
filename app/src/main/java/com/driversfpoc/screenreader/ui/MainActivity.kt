@@ -10,34 +10,23 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.driversfpoc.screenreader.R
 import com.driversfpoc.screenreader.data.CaptureRepository
 import com.driversfpoc.screenreader.data.model.CaptureRecord
 import com.driversfpoc.screenreader.databinding.ActivityMainBinding
 import com.driversfpoc.screenreader.service.ScreenReaderService
 
-/**
- * Halaman 1 \u2014 Dashboard utama
- *
- * Menampilkan:
- * - Status service (aktif/tidak)
- * - Search bar untuk pencarian teks di log
- * - Filter chips: Semua, Page, Click, Update, Starred
- * - Daftar tangkapan terbaru (RecyclerView)
- * - Tombol: Hapus Log, Nonaktifkan
- */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var repository: CaptureRepository
     private lateinit var adapter: CaptureAdapter
 
-    // Filter state
-    private var activeFilter: String? = null // null = semua
+    private var activeFilter: String? = null
     private var searchKeyword: String = ""
-
-    // Observer tracking agar bisa di-remove saat filter berubah
     private var currentLiveData: LiveData<List<CaptureRecord>>? = null
     private var currentObserver: Observer<List<CaptureRecord>>? = null
 
@@ -49,6 +38,7 @@ class MainActivity : AppCompatActivity() {
         repository = CaptureRepository.getInstance(applicationContext)
 
         setupRecyclerView()
+        setupSwipeToDelete()
         setupButtons()
         setupFilterChips()
         setupSearch()
@@ -76,17 +66,53 @@ class MainActivity : AppCompatActivity() {
         binding.recyclerCaptures.adapter = adapter
     }
 
+    /**
+     * Swipe ke kiri untuk hapus log.
+     * Menampilkan dialog konfirmasi sebelum hapus.
+     * Jika batal, item dikembalikan ke posisi semula.
+     */
+    private fun setupSwipeToDelete() {
+        val callback = object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean = false
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+                val position = viewHolder.adapterPosition
+                val record = adapter.currentList[position]
+
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Hapus Log #${record.id}?")
+                    .setMessage("Log ini akan dihapus permanen.")
+                    .setPositiveButton(getString(R.string.confirm_yes)) { _, _ ->
+                        repository.deleteById(record.id)
+                    }
+                    .setNegativeButton(getString(R.string.confirm_no)) { _, _ ->
+                        adapter.notifyItemChanged(position)
+                    }
+                    .setOnCancelListener {
+                        adapter.notifyItemChanged(position)
+                    }
+                    .show()
+            }
+        }
+        ItemTouchHelper(callback).attachToRecyclerView(binding.recyclerCaptures)
+    }
+
     private fun setupButtons() {
         binding.btnEnable.setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
-
         binding.btnDisable.setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
-
         binding.btnClearLogs.setOnClickListener {
             showClearConfirmation()
+        }
+        binding.btnFlowBoards.setOnClickListener {
+            startActivity(Intent(this, FlowBoardListActivity::class.java))
         }
     }
 
@@ -125,7 +151,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-    // Data Observation
+    // Data
     // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
     private fun observeTotalCount() {
@@ -134,33 +160,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Menerapkan filter aktif + keyword pencarian.
-     * Melepas observer lama dan memasang observer baru sesuai kombinasi filter.
-     */
     private fun applyFilter() {
-        // Remove previous observer
         currentLiveData?.let { ld ->
             currentObserver?.let { obs -> ld.removeObserver(obs) }
         }
 
-        // Tentukan LiveData berdasarkan kombinasi filter + search
         val liveData: LiveData<List<CaptureRecord>> = when {
-            activeFilter == "STARRED" -> {
-                repository.getStarred()
-            }
-            searchKeyword.isNotBlank() && activeFilter != null -> {
+            activeFilter == "STARRED" -> repository.getStarred()
+            searchKeyword.isNotBlank() && activeFilter != null ->
                 repository.searchByTextAndType(searchKeyword, activeFilter!!)
-            }
-            searchKeyword.isNotBlank() -> {
-                repository.searchByText(searchKeyword)
-            }
-            activeFilter != null -> {
-                repository.getByEventType(activeFilter!!)
-            }
-            else -> {
-                repository.getAllDesc()
-            }
+            searchKeyword.isNotBlank() -> repository.searchByText(searchKeyword)
+            activeFilter != null -> repository.getByEventType(activeFilter!!)
+            else -> repository.getAllDesc()
         }
 
         val observer = Observer<List<CaptureRecord>> { captures ->
@@ -180,7 +191,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-    // UI Updates
+    // UI
     // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
     private fun updateServiceStatus() {

@@ -3,13 +3,17 @@
     <string name="app_name">SF Screen Reader</string>
     <string name="accessibility_service_description">Membaca teks dan merekam klik di layar ShopeeFood Driver untuk keperluan logging dan verifikasi data.</string>
     <string name="btn_enable_reader">Aktifkan Screen Reader</string>
-    <string name="btn_disable_reader">Nonaktifkan Screen Reader</string>
-    <string name="btn_clear_logs">Hapus Semua Log</string>
-    <string name="btn_copy_text">Salin Teks</string>
+    <string name="btn_disable_reader">Nonaktifkan</string>
+    <string name="btn_clear_logs">Hapus Log</string>
+    <string name="btn_copy_text">Salin</string>
     <string name="btn_back">Kembali</string>
     <string name="btn_toggle_node_tree">Tampilkan/Sembunyikan Node Tree</string>
     <string name="btn_add_tag">\uD83C\uDFF7 Tag</string>
-    <string name="btn_add_note">\uD83D\uDCDD Catatan</string>
+    <string name="btn_add_note">\uD83D\uDCDD Note</string>
+    <string name="btn_add_to_flow">\uD83D\uDCCB +Flow</string>
+    <string name="btn_flow_boards">\uD83D\uDCCB Flows</string>
+    <string name="btn_create_board">\u2795 Buat Flow Board</string>
+    <string name="btn_delete_board">\uD83D\uDDD1 Hapus Board</string>
     <string name="status_active">\u2705 Screen Reader Aktif</string>
     <string name="status_inactive">\u274c Screen Reader Tidak Aktif</string>
     <string name="capture_today">Total: %d tangkapan</string>
@@ -34,4 +38,13 @@
     <string name="dialog_tag_title">Pilih Tag</string>
     <string name="dialog_clear_tag">Hapus Tag</string>
     <string name="dialog_note_title">Catatan Riset</string>
+    <string name="dialog_add_to_flow_title">Tambah ke Flow Board</string>
+    <string name="dialog_create_board_title">Buat Flow Board Baru</string>
+    <string name="dialog_delete_board_title">Hapus Flow Board?</string>
+    <string name="dialog_delete_board_message">Flow board ini beserta semua item di dalamnya akan dihapus. Log asli tetap aman.</string>
+    <string name="flow_board_title">\uD83D\uDCCB Flow Boards</string>
+    <string name="flow_board_subtitle">Organisir log ke dalam flow yang terurut</string>
+    <string name="flow_board_empty">Belum ada Flow Board.\nBuat flow board pertama untuk\nmulai mengorganisir log.</string>
+    <string name="flow_board_detail_empty">Belum ada item.\nTambahkan log dari halaman detail.</string>
+    <string name="flow_board_item_count">%d langkah \u2022 Drag \u2261 untuk urutkan</string>
 </resources>
