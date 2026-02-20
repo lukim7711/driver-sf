@@ -7,10 +7,6 @@ import com.driversfpoc.screenreader.data.model.FlowBoardItem
 import com.driversfpoc.screenreader.data.model.FlowBoardItemWithCapture
 import java.util.concurrent.Executors
 
-/**
- * Repository untuk Flow Board.
- * Semua operasi write di background thread.
- */
 class FlowBoardRepository private constructor(context: Context) {
 
     private val dao: FlowBoardDao = AppDatabase.getInstance(context).flowBoardDao()
@@ -48,14 +44,16 @@ class FlowBoardRepository private constructor(context: Context) {
 
     fun getAllBoards(): LiveData<List<FlowBoard>> = dao.getAllBoards()
 
+    /** Blocking version untuk dialog usage (harus dipanggil dari background thread) */
+    fun getAllBoardsSync(): List<FlowBoard> = dao.getAllBoardsSync()
+
     fun getBoardById(boardId: Long): FlowBoard? = dao.getBoardById(boardId)
 
     // ===== Items =====
 
-    /** Tambah capture ke flow board (append di akhir) */
+    /** Tambah capture ke flow board (append di posisi terakhir) */
     fun addCaptureToBoard(boardId: Long, captureId: Long, onResult: ((Boolean) -> Unit)? = null) {
         executor.execute {
-            // Cek duplikat
             val exists = dao.isCaptureInBoard(boardId, captureId) > 0
             if (exists) {
                 onResult?.invoke(false)
@@ -84,19 +82,12 @@ class FlowBoardRepository private constructor(context: Context) {
     fun getItemsWithCapture(boardId: Long): LiveData<List<FlowBoardItemWithCapture>> =
         dao.getItemsWithCapture(boardId)
 
-    /** Reorder: swap posisi semua items sesuai list baru */
+    /** Simpan urutan baru setelah drag & drop */
     fun reorderItems(items: List<FlowBoardItemWithCapture>) {
         executor.execute {
             items.forEachIndexed { index, itemWithCapture ->
                 dao.updatePosition(itemWithCapture.item.id, index)
             }
-        }
-    }
-
-    fun updateItemNote(itemId: Long, note: String) {
-        executor.execute {
-            // Using raw query via DAO would be cleaner, but for now:
-            // We'll update via the item itself
         }
     }
 }
