@@ -31,6 +31,12 @@ import java.util.concurrent.Executors
  * 2. Untuk klik: merekam detail elemen yang diklik (tanpa debounce)
  * 3. Untuk window/content change: traverse seluruh node tree secara rekursif
  * 4. Menyimpan plain text (urut by bounds) + node tree JSON ke database
+ *
+ * Deduplication strategy:
+ * - STATE_CHANGED (PAGE): selalu direkam, reset suppress window
+ * - CONTENT_CHANGED (UPDATE): di-suppress 1.5 detik setelah STATE_CHANGED,
+ *   di-debounce 800ms, dan di-cek prefix similarity (100 char)
+ * - Klik: selalu direkam tanpa debounce
  */
 class ScreenReaderService : AccessibilityService() {
 
@@ -38,7 +44,29 @@ class ScreenReaderService : AccessibilityService() {
         private const val TAG = "ScreenReaderService"
         private const val FOREGROUND_NOTIFICATION_ID = 1001
         private const val TARGET_PACKAGE = "com.shopee.foody.driver.id"
-        private const val DEBOUNCE_MS = 300L
+
+        /**
+         * Debounce untuk CONTENT_CHANGED events.
+         * Dinaikkan dari 300ms ke 800ms untuk mengurangi noise dari
+         * minor UI updates (animasi, loading indicator, dll).
+         */
+        private const val DEBOUNCE_CONTENT_MS = 800L
+
+        /**
+         * Suppress window: setelah STATE_CHANGED (page transition),
+         * semua CONTENT_CHANGED events di-suppress selama periode ini.
+         *
+         * Alasan: Android fire kedua event hampir bersamaan saat buka
+         * halaman baru, menghasilkan duplikat UPDATE + PAGE.
+         */
+        private const val STATE_CHANGE_SUPPRESS_MS = 1500L
+
+        /**
+         * Panjang prefix yang digunakan untuk similarity check.
+         * Jika 100 karakter pertama sama, konten dianggap duplikat
+         * meskipun total karakter sedikit berbeda.
+         */
+        private const val SIMILARITY_PREFIX_LENGTH = 100
 
         var isRunning = false
             private set
@@ -52,6 +80,8 @@ class ScreenReaderService : AccessibilityService() {
     private val executor = Executors.newSingleThreadExecutor()
     private var lastCaptureTime = 0L
     private var lastCaptureHash = 0
+    private var lastCapturePrefix = ""
+    private var lastStateChangeTime = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -94,13 +124,26 @@ class ScreenReaderService : AccessibilityService() {
                 captureClickEvent(event)
             }
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                // Pindah halaman: selalu rekam full snapshot (reset debounce)
+                // Pindah halaman: selalu rekam full snapshot
+                val now = System.currentTimeMillis()
+                lastStateChangeTime = now
                 captureFullSnapshot(event, "WINDOW_STATE_CHANGED")
             }
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
-                // Konten berubah: rekam dengan debounce
                 val now = System.currentTimeMillis()
-                if (now - lastCaptureTime < DEBOUNCE_MS) return
+
+                // Guard 1: Suppress setelah page transition
+                // STATE_CHANGED sudah capture halaman ini
+                if (now - lastStateChangeTime < STATE_CHANGE_SUPPRESS_MS) {
+                    Log.d(TAG, "CONTENT_CHANGED suppressed (within ${STATE_CHANGE_SUPPRESS_MS}ms of STATE_CHANGED)")
+                    return
+                }
+
+                // Guard 2: Debounce rapid-fire content updates
+                if (now - lastCaptureTime < DEBOUNCE_CONTENT_MS) {
+                    return
+                }
+
                 captureFullSnapshot(event, "WINDOW_CONTENT_CHANGED")
             }
         }
@@ -184,6 +227,11 @@ class ScreenReaderService : AccessibilityService() {
     /**
      * Menangkap snapshot seluruh teks di layar.
      * Digunakan untuk WINDOW_STATE_CHANGED dan WINDOW_CONTENT_CHANGED.
+     *
+     * Deduplication:
+     * 1. Hash check: exact match → skip
+     * 2. Prefix check: 100 char pertama sama → skip
+     *    (menangkap kasus dimana total chars beda tipis, misal 522 vs 540)
      */
     private fun captureFullSnapshot(event: AccessibilityEvent, eventType: String) {
         val rootNode = try {
@@ -213,8 +261,23 @@ class ScreenReaderService : AccessibilityService() {
 
             if (plainText.isBlank()) return
 
+            // Dedup 1: Exact hash match
             val currentHash = plainText.hashCode()
-            if (currentHash == lastCaptureHash) return
+            if (currentHash == lastCaptureHash) {
+                Log.d(TAG, "Skipped: exact hash match")
+                return
+            }
+
+            // Dedup 2: Prefix similarity check
+            // Menangkap kasus dimana Android merender sedikit beda
+            // (misal loading indicator muncul/hilang) tapi halaman sama
+            val currentPrefix = plainText.take(SIMILARITY_PREFIX_LENGTH)
+            if (currentPrefix == lastCapturePrefix && currentPrefix.isNotBlank()) {
+                Log.d(TAG, "Skipped: prefix match (first ${SIMILARITY_PREFIX_LENGTH} chars identical)")
+                // Update hash supaya future exact match juga bisa catch
+                lastCaptureHash = currentHash
+                return
+            }
 
             val nodeTreeJson = gson.toJson(nodeDataList)
 
@@ -230,9 +293,10 @@ class ScreenReaderService : AccessibilityService() {
 
             lastCaptureTime = System.currentTimeMillis()
             lastCaptureHash = currentHash
+            lastCapturePrefix = currentPrefix
             captureCountToday++
 
-            Log.d(TAG, "Captured #$captureCountToday: ${plainText.take(50)}...")
+            Log.d(TAG, "Captured #$captureCountToday [$eventType]: ${plainText.take(50)}...")
 
             try {
                 updateNotification()
