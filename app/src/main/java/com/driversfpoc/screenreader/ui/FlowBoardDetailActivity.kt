@@ -31,7 +31,7 @@ import java.util.concurrent.Executors
  * - Drag & drop untuk reorder (long press)
  * - Tap item untuk lihat detail capture
  * - Remove item dari flow board (tombol \u2715)
- * - Export sebagai JSON untuk analisis AI
+ * - Export sebagai JSON untuk analisis AI (termasuk full node tree)
  * - Hapus seluruh flow board
  */
 class FlowBoardDetailActivity : AppCompatActivity() {
@@ -55,9 +55,7 @@ class FlowBoardDetailActivity : AppCompatActivity() {
     private var pendingExportJson: String = ""
 
     /**
-     * SAF launcher: user pilih lokasi file → tulis JSON.
-     * Menggunakan ActivityResultContracts.CreateDocument untuk
-     * kompatibilitas dengan scoped storage Android 10+.
+     * SAF launcher: user pilih lokasi file \u2192 tulis JSON.
      */
     private val saveFileLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -101,11 +99,6 @@ class FlowBoardDetailActivity : AppCompatActivity() {
         binding.recyclerItems.adapter = adapter
     }
 
-    /**
-     * Setup drag & drop menggunakan ItemTouchHelper bawaan Android.
-     * Long press pada item untuk mulai drag.
-     * Setelah drop, posisi baru disimpan ke database.
-     */
     private fun setupDragAndDrop() {
         val callback = object : ItemTouchHelper.SimpleCallback(
             ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0
@@ -192,7 +185,7 @@ class FlowBoardDetailActivity : AppCompatActivity() {
 
     /**
      * Export flow board sebagai JSON terstruktur.
-     * Tampilkan dialog pilihan: Share, Copy, atau Save file.
+     * Pilihan: Share, Copy, atau Save file.
      */
     private fun exportFlowBoard() {
         if (currentItems.isEmpty()) {
@@ -221,16 +214,14 @@ class FlowBoardDetailActivity : AppCompatActivity() {
     /**
      * Build JSON terstruktur untuk analisis AI.
      *
-     * Format:
-     * {
-     *   "flow_board": { name, description, exported_at, total_steps },
-     *   "steps": [
-     *     {
-     *       position, capture_id, event_type, timestamp,
-     *       note, tag, is_starred, text_length, screen_content
-     *     }, ...
-     *   ]
-     * }
+     * Setiap step berisi:
+     * - screen_content: plain text (ringkasan cepat)
+     * - node_tree: FULL raw JSON array dari setiap UI node
+     *   (className, text, contentDescription, resourceId,
+     *    bounds, childCount, depth)
+     *
+     * Format node_tree sama persis dengan file-file .md di Space
+     * yang digunakan untuk analisis AI.
      */
     private fun buildExportJson(): String {
         val timeFormatter = DateTimeFormatter
@@ -246,7 +237,7 @@ class FlowBoardDetailActivity : AppCompatActivity() {
                 put("total_steps", currentItems.size)
             })
 
-            // Ordered steps
+            // Ordered steps with full node tree
             put("steps", JSONArray().apply {
                 currentItems.forEachIndexed { index, item ->
                     val capture = item.capture
@@ -254,6 +245,17 @@ class FlowBoardDetailActivity : AppCompatActivity() {
                         timeFormatter.format(Instant.parse(capture.timestamp))
                     } catch (e: Exception) {
                         capture.timestamp
+                    }
+
+                    // Parse node tree JSON string back into JSONArray
+                    val nodeTree = try {
+                        if (capture.nodeTreeJson.isNotBlank()) {
+                            JSONArray(capture.nodeTreeJson)
+                        } else {
+                            JSONArray()
+                        }
+                    } catch (e: Exception) {
+                        JSONArray()
                     }
 
                     put(JSONObject().apply {
@@ -272,6 +274,7 @@ class FlowBoardDetailActivity : AppCompatActivity() {
                         put("is_starred", capture.isStarred)
                         put("text_length", capture.textLength)
                         put("screen_content", capture.plainText)
+                        put("node_tree", nodeTree)
                     })
                 }
             })
@@ -282,7 +285,6 @@ class FlowBoardDetailActivity : AppCompatActivity() {
 
     /**
      * Share JSON via Android share intent.
-     * User bisa kirim ke ChatGPT, WhatsApp, Email, dll.
      */
     private fun shareJson(json: String) {
         val intent = Intent(Intent.ACTION_SEND).apply {
@@ -294,22 +296,24 @@ class FlowBoardDetailActivity : AppCompatActivity() {
     }
 
     /**
-     * Copy JSON ke clipboard. Paling praktis untuk paste ke AI chat.
+     * Copy JSON ke clipboard.
      */
     private fun copyToClipboard(json: String) {
         val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText("Flow Board: $boardName", json)
         clipboard.setPrimaryClip(clip)
+
+        val sizeKb = json.length / 1024
+        val sizeText = if (sizeKb > 0) "${sizeKb}KB" else "${json.length} chars"
         Toast.makeText(
             this,
-            getString(R.string.export_copied, json.length),
+            getString(R.string.export_copied, sizeText),
             Toast.LENGTH_SHORT
         ).show()
     }
 
     /**
      * Simpan JSON sebagai file .json menggunakan SAF.
-     * User pilih lokasi penyimpanan sendiri.
      */
     private fun saveAsFile(json: String) {
         pendingExportJson = json
