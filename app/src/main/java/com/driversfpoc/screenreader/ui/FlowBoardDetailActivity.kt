@@ -22,8 +22,13 @@ import org.json.JSONObject
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.concurrent.Executors
 
+/**
+ * Detail screen untuk melihat dan mengelola satu FlowBoard.
+ *
+ * Semua DB operations didelegasikan ke FlowBoardRepository yang
+ * mengelola executor sendiri. Activity ini TIDAK membuat executor.
+ */
 class FlowBoardDetailActivity : AppCompatActivity() {
 
     companion object {
@@ -33,7 +38,6 @@ class FlowBoardDetailActivity : AppCompatActivity() {
     private lateinit var binding: ActivityFlowBoardDetailBinding
     private lateinit var repository: FlowBoardRepository
     private lateinit var adapter: FlowBoardItemAdapter
-    private val executor = Executors.newSingleThreadExecutor()
 
     private var boardId: Long = -1
     private var currentItems: MutableList<FlowBoardItemWithCapture> = mutableListOf()
@@ -129,19 +133,21 @@ class FlowBoardDetailActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Load board menggunakan repository async method.
+     * Tidak perlu executor sendiri.
+     */
     private fun loadBoard() {
-        executor.execute {
-            val board = repository.getBoardById(boardId) ?: return@execute
+        repository.getBoardByIdAsync(boardId) { board ->
+            if (board == null) return@getBoardByIdAsync
             boardName = board.name
             boardDescription = board.description
             boardCreatedAt = board.createdAt
 
-            runOnUiThread {
-                binding.tvBoardName.text = board.name
-                if (board.description.isNotBlank()) {
-                    binding.tvBoardDescription.text = board.description
-                    binding.tvBoardDescription.visibility = View.VISIBLE
-                }
+            binding.tvBoardName.text = board.name
+            if (board.description.isNotBlank()) {
+                binding.tvBoardDescription.text = board.description
+                binding.tvBoardDescription.visibility = View.VISIBLE
             }
         }
     }

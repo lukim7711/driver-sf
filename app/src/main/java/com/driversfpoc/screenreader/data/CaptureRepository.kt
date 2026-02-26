@@ -1,14 +1,29 @@
 package com.driversfpoc.screenreader.data
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import androidx.lifecycle.LiveData
 import com.driversfpoc.screenreader.data.model.CaptureRecord
 import java.util.concurrent.Executors
 
+/**
+ * Repository untuk akses data CaptureRecord.
+ *
+ * Semua write operations dan blocking read operations dijalankan di
+ * internal executor thread. UI layer TIDAK perlu membuat executor sendiri.
+ *
+ * Pattern:
+ * - Write (insert, update, delete): fire-and-forget via executor
+ * - Read reactive (LiveData): langsung return, Room handle background query
+ * - Read blocking (getById, getCountSince): via getByIdAsync() dengan callback
+ *   yang dipanggil di main thread
+ */
 class CaptureRepository private constructor(context: Context) {
 
     private val dao: CaptureDao = AppDatabase.getInstance(context).captureDao()
     private val executor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     companion object {
         @Volatile
@@ -23,6 +38,10 @@ class CaptureRepository private constructor(context: Context) {
         }
     }
 
+    // ──────────────────────────────────────────────
+    // Write Operations (fire-and-forget)
+    // ──────────────────────────────────────────────
+
     fun insert(record: CaptureRecord) {
         executor.execute { dao.insert(record) }
     }
@@ -35,9 +54,19 @@ class CaptureRepository private constructor(context: Context) {
         executor.execute { dao.deleteById(id) }
     }
 
-    fun getAllDesc(): LiveData<List<CaptureRecord>> = dao.getAllDesc()
+    fun deleteAll() {
+        executor.execute { dao.deleteAll() }
+    }
 
-    fun getById(id: Long): CaptureRecord? = dao.getById(id)
+    fun deleteOlderThan(beforeTimestamp: String) {
+        executor.execute { dao.deleteOlderThan(beforeTimestamp) }
+    }
+
+    // ──────────────────────────────────────────────
+    // Read Operations — Reactive (LiveData)
+    // ──────────────────────────────────────────────
+
+    fun getAllDesc(): LiveData<List<CaptureRecord>> = dao.getAllDesc()
 
     fun getByEventType(eventType: String): LiveData<List<CaptureRecord>> =
         dao.getByEventType(eventType)
@@ -61,15 +90,29 @@ class CaptureRepository private constructor(context: Context) {
 
     fun getAllTags(): LiveData<List<String>> = dao.getAllTags()
 
-    fun getCountSince(sinceTimestamp: String): Int = dao.getCountSince(sinceTimestamp)
-
     fun getTotalCount(): LiveData<Int> = dao.getTotalCount()
 
-    fun deleteAll() {
-        executor.execute { dao.deleteAll() }
+    // ──────────────────────────────────────────────
+    // Read Operations — Async with Callback
+    // ──────────────────────────────────────────────
+
+    /**
+     * Ambil CaptureRecord by ID secara async.
+     * Callback dipanggil di main thread agar aman untuk update UI.
+     *
+     * Menggantikan getById() blocking yang sebelumnya membutuhkan
+     * caller untuk membuat executor sendiri.
+     */
+    fun getByIdAsync(id: Long, onResult: (CaptureRecord?) -> Unit) {
+        executor.execute {
+            val record = dao.getById(id)
+            mainHandler.post { onResult(record) }
+        }
     }
 
-    fun deleteOlderThan(beforeTimestamp: String) {
-        executor.execute { dao.deleteOlderThan(beforeTimestamp) }
-    }
+    /**
+     * Blocking version — HANYA untuk dipanggil dari background thread.
+     * Digunakan oleh ScreenReaderService yang sudah berjalan di executor-nya sendiri.
+     */
+    fun getCountSince(sinceTimestamp: String): Int = dao.getCountSince(sinceTimestamp)
 }
