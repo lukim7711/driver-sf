@@ -21,6 +21,7 @@ import com.google.gson.GsonBuilder
 import java.time.Instant
 import java.time.ZoneId
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * AccessibilityService yang membaca semua teks di layar ShopeeFood Driver.
@@ -32,11 +33,20 @@ import java.util.concurrent.Executors
  * 3. Untuk window/content change: traverse seluruh node tree secara rekursif
  * 4. Menyimpan plain text (urut by bounds) + node tree JSON ke database
  *
- * Deduplication strategy:
+ * Deduplication strategy (v2 — ring buffer):
  * - STATE_CHANGED (PAGE): selalu direkam, reset suppress window
  * - CONTENT_CHANGED (UPDATE): di-suppress 1.5 detik setelah STATE_CHANGED,
- *   di-debounce 800ms, dan di-cek prefix similarity (100 char)
+ *   di-debounce 800ms, dan di-cek via ring buffer hash (10 capture terakhir)
  * - Klik: selalu direkam tanpa debounce
+ *
+ * Perubahan dari v1:
+ * - DIHAPUS: prefix similarity check (100 char) — terlalu agresif,
+ *   menyebabkan variasi penting di-skip untuk keperluan data collection
+ * - DIGANTI: single lastCaptureHash → ring buffer (LinkedHashSet) 10 hash
+ *   terakhir untuk menangkap duplikat dari navigasi bolak-balik
+ * - DITAMBAH: normalizeText() untuk menangkap duplikat yang beda di
+ *   whitespace/invisible characters
+ * - DITAMBAH: AtomicInteger untuk thread-safe captureCountToday
  */
 class ScreenReaderService : AccessibilityService() {
 
@@ -62,26 +72,36 @@ class ScreenReaderService : AccessibilityService() {
         private const val STATE_CHANGE_SUPPRESS_MS = 1500L
 
         /**
-         * Panjang prefix yang digunakan untuk similarity check.
-         * Jika 100 karakter pertama sama, konten dianggap duplikat
-         * meskipun total karakter sedikit berbeda.
+         * Jumlah hash yang disimpan dalam ring buffer untuk dedup.
+         * Menangkap duplikat dari navigasi bolak-balik antar halaman.
+         * Misal: Halaman A → B → Peta → B (kembali)
+         * Dengan ring buffer size 10, hash B masih tersimpan sehingga
+         * duplikat terdeteksi meskipun ada halaman lain di antaranya.
          */
-        private const val SIMILARITY_PREFIX_LENGTH = 100
+        private const val DEDUP_HISTORY_SIZE = 10
 
         var isRunning = false
             private set
 
-        var captureCountToday = 0
-            private set
+        /** Thread-safe counter menggunakan AtomicInteger */
+        private val _captureCountToday = AtomicInteger(0)
+        val captureCountToday: Int get() = _captureCountToday.get()
     }
 
     private lateinit var repository: CaptureRepository
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
     private val executor = Executors.newSingleThreadExecutor()
     private var lastCaptureTime = 0L
-    private var lastCaptureHash = 0
-    private var lastCapturePrefix = ""
     private var lastStateChangeTime = 0L
+
+    /**
+     * Ring buffer menyimpan N hash terakhir dari capture yang berhasil disimpan.
+     * Menggunakan LinkedHashSet untuk:
+     * - O(1) lookup (contains check)
+     * - Menjaga insertion order (FIFO eviction)
+     * - Otomatis deduplikasi hash yang sama
+     */
+    private val recentHashes = LinkedHashSet<Int>()
 
     override fun onCreate() {
         super.onCreate()
@@ -104,7 +124,7 @@ class ScreenReaderService : AccessibilityService() {
         executor.execute {
             try {
                 loadTodayCount()
-                Log.d(TAG, "Today count loaded: $captureCountToday")
+                Log.d(TAG, "Today count loaded: ${_captureCountToday.get()}")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load today count", e)
             }
@@ -157,7 +177,69 @@ class ScreenReaderService : AccessibilityService() {
         super.onDestroy()
         Log.d(TAG, "onDestroy")
         isRunning = false
-        captureCountToday = 0
+        _captureCountToday.set(0)
+        recentHashes.clear()
+    }
+
+    // ──────────────────────────────────────────────
+    // Text Normalization
+    // ──────────────────────────────────────────────
+
+    /**
+     * Normalisasi teks sebelum hashing untuk menangkap duplikat
+     * yang secara visual identik tapi beda di karakter tak terlihat.
+     *
+     * Contoh kasus:
+     * - "Total: Rp 45.000"  (1 spasi) vs "Total: Rp  45.000" (2 spasi)
+     * - Trailing whitespace / newline berbeda
+     * - Non-breaking space (\u00A0) vs regular space
+     */
+    private fun normalizeText(text: String): String {
+        return text
+            .trim()
+            .replace('\u00A0', ' ')       // non-breaking space → regular space
+            .replace('\u200B', ' ')       // zero-width space → space
+            .replace('\u200C', ' ')       // zero-width non-joiner → space
+            .replace('\u200D', ' ')       // zero-width joiner → space
+            .replace('\uFEFF', ' ')       // BOM → space
+            .replace(Regex("\\s+"), " ")  // collapse semua whitespace jadi 1 spasi
+    }
+
+    // ──────────────────────────────────────────────
+    // Ring Buffer Deduplication
+    // ──────────────────────────────────────────────
+
+    /**
+     * Cek apakah teks sudah pernah di-capture dalam N capture terakhir.
+     *
+     * Menggunakan ring buffer (LinkedHashSet) berisi hash dari teks
+     * yang sudah dinormalisasi. Jika hash ditemukan di buffer,
+     * teks dianggap duplikat.
+     *
+     * Jika bukan duplikat, hash ditambahkan ke buffer dan entry
+     * terlama di-evict jika buffer sudah penuh.
+     *
+     * @param normalizedText teks yang sudah di-normalize
+     * @return true jika duplikat, false jika unik
+     */
+    private fun isDuplicate(normalizedText: String): Boolean {
+        val hash = normalizedText.hashCode()
+
+        if (hash in recentHashes) {
+            Log.d(TAG, "Skipped: duplicate found in recent $DEDUP_HISTORY_SIZE captures (hash=$hash)")
+            return true
+        }
+
+        // Tambah hash baru ke buffer
+        recentHashes.add(hash)
+
+        // Evict hash terlama jika buffer penuh (FIFO)
+        if (recentHashes.size > DEDUP_HISTORY_SIZE) {
+            val oldest = recentHashes.first()
+            recentHashes.remove(oldest)
+        }
+
+        return false
     }
 
     // ──────────────────────────────────────────────
@@ -206,7 +288,7 @@ class ScreenReaderService : AccessibilityService() {
             )
 
             repository.insert(record)
-            captureCountToday++
+            _captureCountToday.incrementAndGet()
 
             Log.d(TAG, "Click captured: ${source.text} [${source.viewIdResourceName}]")
 
@@ -228,10 +310,12 @@ class ScreenReaderService : AccessibilityService() {
      * Menangkap snapshot seluruh teks di layar.
      * Digunakan untuk WINDOW_STATE_CHANGED dan WINDOW_CONTENT_CHANGED.
      *
-     * Deduplication:
-     * 1. Hash check: exact match → skip
-     * 2. Prefix check: 100 char pertama sama → skip
-     *    (menangkap kasus dimana total chars beda tipis, misal 522 vs 540)
+     * Deduplication (v2):
+     * 1. Normalize teks (collapse whitespace, hapus invisible chars)
+     * 2. Hash normalized text
+     * 3. Cek hash terhadap ring buffer (10 capture terakhir)
+     * 4. Jika ditemukan → skip (duplikat dari navigasi bolak-balik)
+     * 5. Jika tidak → simpan dan tambahkan hash ke ring buffer
      */
     private fun captureFullSnapshot(event: AccessibilityEvent, eventType: String) {
         val rootNode = try {
@@ -261,23 +345,9 @@ class ScreenReaderService : AccessibilityService() {
 
             if (plainText.isBlank()) return
 
-            // Dedup 1: Exact hash match
-            val currentHash = plainText.hashCode()
-            if (currentHash == lastCaptureHash) {
-                Log.d(TAG, "Skipped: exact hash match")
-                return
-            }
-
-            // Dedup 2: Prefix similarity check
-            // Menangkap kasus dimana Android merender sedikit beda
-            // (misal loading indicator muncul/hilang) tapi halaman sama
-            val currentPrefix = plainText.take(SIMILARITY_PREFIX_LENGTH)
-            if (currentPrefix == lastCapturePrefix && currentPrefix.isNotBlank()) {
-                Log.d(TAG, "Skipped: prefix match (first ${SIMILARITY_PREFIX_LENGTH} chars identical)")
-                // Update hash supaya future exact match juga bisa catch
-                lastCaptureHash = currentHash
-                return
-            }
+            // Normalize + ring buffer dedup
+            val normalizedText = normalizeText(plainText)
+            if (isDuplicate(normalizedText)) return
 
             val nodeTreeJson = gson.toJson(nodeDataList)
 
@@ -292,11 +362,9 @@ class ScreenReaderService : AccessibilityService() {
             repository.insert(record)
 
             lastCaptureTime = System.currentTimeMillis()
-            lastCaptureHash = currentHash
-            lastCapturePrefix = currentPrefix
-            captureCountToday++
+            val count = _captureCountToday.incrementAndGet()
 
-            Log.d(TAG, "Captured #$captureCountToday [$eventType]: ${plainText.take(50)}...")
+            Log.d(TAG, "Captured #$count [$eventType]: ${plainText.take(50)}...")
 
             try {
                 updateNotification()
@@ -382,7 +450,7 @@ class ScreenReaderService : AccessibilityService() {
 
         return NotificationCompat.Builder(this, ScreenReaderApp.CHANNEL_ID)
             .setContentTitle(getString(R.string.notification_title))
-            .setContentText(getString(R.string.notification_text, captureCountToday))
+            .setContentText(getString(R.string.notification_text, _captureCountToday.get()))
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
@@ -402,7 +470,7 @@ class ScreenReaderService : AccessibilityService() {
             .toInstant()
             .toString()
 
-        captureCountToday = repository.getCountSince(todayStart)
+        _captureCountToday.set(repository.getCountSince(todayStart))
     }
 }
 
