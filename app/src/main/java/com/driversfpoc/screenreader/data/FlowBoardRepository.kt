@@ -1,16 +1,30 @@
 package com.driversfpoc.screenreader.data
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import androidx.lifecycle.LiveData
 import com.driversfpoc.screenreader.data.model.FlowBoard
 import com.driversfpoc.screenreader.data.model.FlowBoardItem
 import com.driversfpoc.screenreader.data.model.FlowBoardItemWithCapture
 import java.util.concurrent.Executors
 
+/**
+ * Repository untuk akses data FlowBoard dan FlowBoardItem.
+ *
+ * Semua write operations dan blocking read operations dijalankan di
+ * internal executor thread. UI layer TIDAK perlu membuat executor sendiri.
+ *
+ * Pattern:
+ * - Write: fire-and-forget via executor, dengan optional callback di main thread
+ * - Read reactive (LiveData): langsung return
+ * - Read blocking: via async method dengan callback di main thread
+ */
 class FlowBoardRepository private constructor(context: Context) {
 
     private val dao: FlowBoardDao = AppDatabase.getInstance(context).flowBoardDao()
     private val executor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     companion object {
         @Volatile
@@ -30,7 +44,7 @@ class FlowBoardRepository private constructor(context: Context) {
     fun insertBoard(board: FlowBoard, onResult: ((Long) -> Unit)? = null) {
         executor.execute {
             val id = dao.insertBoard(board)
-            onResult?.invoke(id)
+            onResult?.let { callback -> mainHandler.post { callback(id) } }
         }
     }
 
@@ -44,10 +58,26 @@ class FlowBoardRepository private constructor(context: Context) {
 
     fun getAllBoards(): LiveData<List<FlowBoard>> = dao.getAllBoards()
 
-    /** Blocking version untuk dialog usage (harus dipanggil dari background thread) */
-    fun getAllBoardsSync(): List<FlowBoard> = dao.getAllBoardsSync()
+    /**
+     * Ambil semua boards secara async.
+     * Callback dipanggil di main thread.
+     *
+     * Menggantikan getAllBoardsSync() blocking yang membutuhkan
+     * caller untuk membuat executor sendiri.
+     */
+    fun getAllBoardsAsync(onResult: (List<FlowBoard>) -> Unit) {
+        executor.execute {
+            val boards = dao.getAllBoardsSync()
+            mainHandler.post { onResult(boards) }
+        }
+    }
 
-    fun getBoardById(boardId: Long): FlowBoard? = dao.getBoardById(boardId)
+    fun getBoardByIdAsync(boardId: Long, onResult: (FlowBoard?) -> Unit) {
+        executor.execute {
+            val board = dao.getBoardById(boardId)
+            mainHandler.post { onResult(board) }
+        }
+    }
 
     // ===== Items =====
 
@@ -56,7 +86,7 @@ class FlowBoardRepository private constructor(context: Context) {
         executor.execute {
             val exists = dao.isCaptureInBoard(boardId, captureId) > 0
             if (exists) {
-                onResult?.invoke(false)
+                onResult?.let { callback -> mainHandler.post { callback(false) } }
                 return@execute
             }
 
@@ -68,7 +98,7 @@ class FlowBoardRepository private constructor(context: Context) {
             )
             dao.insertItem(item)
             dao.refreshItemCount(boardId)
-            onResult?.invoke(true)
+            onResult?.let { callback -> mainHandler.post { callback(true) } }
         }
     }
 

@@ -18,8 +18,13 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import java.util.concurrent.Executors
 
+/**
+ * Detail screen untuk melihat dan mengelola satu CaptureRecord.
+ *
+ * Semua DB operations didelegasikan ke Repository yang mengelola
+ * executor sendiri. Activity ini TIDAK membuat executor.
+ */
 class CaptureDetailActivity : AppCompatActivity() {
 
     companion object {
@@ -29,7 +34,6 @@ class CaptureDetailActivity : AppCompatActivity() {
     private lateinit var binding: ActivityCaptureDetailBinding
     private lateinit var repository: CaptureRepository
     private lateinit var flowBoardRepository: FlowBoardRepository
-    private val executor = Executors.newSingleThreadExecutor()
 
     private val dateTimeFormatter = DateTimeFormatter
         .ofPattern("HH:mm:ss \u2014 dd MMM yyyy", Locale("id", "ID"))
@@ -89,15 +93,18 @@ class CaptureDetailActivity : AppCompatActivity() {
     // Load Data
     // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
+    /**
+     * Load capture menggunakan repository async method.
+     * Tidak perlu executor sendiri — repository handle background thread.
+     */
     private fun loadCapture(captureId: Long) {
-        executor.execute {
-            val record = repository.getById(captureId)
+        repository.getByIdAsync(captureId) { record ->
             if (record == null) {
-                runOnUiThread { finish() }
-                return@execute
+                finish()
+                return@getByIdAsync
             }
             currentRecord = record
-            runOnUiThread { displayRecord(record) }
+            displayRecord(record)
         }
     }
 
@@ -145,6 +152,10 @@ class CaptureDetailActivity : AppCompatActivity() {
     // Star / Tag / Note
     // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
+    /**
+     * Toggle star — repository.update() sudah handle executor internal,
+     * jadi aman dipanggil dari main thread (fire-and-forget).
+     */
     private fun toggleStar() {
         val record = currentRecord ?: return
         val updated = record.copy(isStarred = !record.isStarred)
@@ -195,6 +206,9 @@ class CaptureDetailActivity : AppCompatActivity() {
             .show()
     }
 
+    /**
+     * Apply tag — repository.update() handle executor internal.
+     */
     private fun applyTag(tag: String) {
         val record = currentRecord ?: return
         val updated = record.copy(tag = tag)
@@ -250,34 +264,30 @@ class CaptureDetailActivity : AppCompatActivity() {
 
     /**
      * Dialog untuk menambahkan capture ini ke Flow Board.
-     * - Jika sudah ada board: tampilkan list pilihan + opsi buat baru
-     * - Jika belum ada board: langsung tawarkan buat baru
+     * Menggunakan flowBoardRepository.getAllBoardsAsync() — tidak perlu
+     * executor sendiri.
      */
     private fun showAddToFlowDialog() {
         val record = currentRecord ?: return
 
-        executor.execute {
-            val boards = flowBoardRepository.getAllBoardsSync()
+        flowBoardRepository.getAllBoardsAsync { boards ->
+            if (boards.isEmpty()) {
+                showCreateBoardAndAddDialog(record.id)
+            } else {
+                val options = boards.map { it.name }.toTypedArray() + "(Buat flow board baru)"
 
-            runOnUiThread {
-                if (boards.isEmpty()) {
-                    showCreateBoardAndAddDialog(record.id)
-                } else {
-                    val options = boards.map { it.name }.toTypedArray() + "(Buat flow board baru)"
-
-                    AlertDialog.Builder(this)
-                        .setTitle(getString(R.string.dialog_add_to_flow_title))
-                        .setItems(options) { _, which ->
-                            if (which == options.size - 1) {
-                                showCreateBoardAndAddDialog(record.id)
-                            } else {
-                                val board = boards[which]
-                                addCaptureToBoard(board, record.id)
-                            }
+                AlertDialog.Builder(this)
+                    .setTitle(getString(R.string.dialog_add_to_flow_title))
+                    .setItems(options) { _, which ->
+                        if (which == options.size - 1) {
+                            showCreateBoardAndAddDialog(record.id)
+                        } else {
+                            val board = boards[which]
+                            addCaptureToBoard(board, record.id)
                         }
-                        .setNegativeButton(getString(R.string.confirm_no), null)
-                        .show()
-                }
+                    }
+                    .setNegativeButton(getString(R.string.confirm_no), null)
+                    .show()
             }
         }
     }
@@ -313,10 +323,8 @@ class CaptureDetailActivity : AppCompatActivity() {
                 )
                 flowBoardRepository.insertBoard(board) { boardId ->
                     flowBoardRepository.addCaptureToBoard(boardId, captureId) { success ->
-                        runOnUiThread {
-                            if (success) {
-                                Toast.makeText(this, "Ditambahkan ke \"$name\"", Toast.LENGTH_SHORT).show()
-                            }
+                        if (success) {
+                            Toast.makeText(this, "Ditambahkan ke \"$name\"", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -327,12 +335,10 @@ class CaptureDetailActivity : AppCompatActivity() {
 
     private fun addCaptureToBoard(board: FlowBoard, captureId: Long) {
         flowBoardRepository.addCaptureToBoard(board.id, captureId) { success ->
-            runOnUiThread {
-                if (success) {
-                    Toast.makeText(this, "Ditambahkan ke \"${board.name}\"", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(this, "Sudah ada di flow board ini", Toast.LENGTH_SHORT).show()
-                }
+            if (success) {
+                Toast.makeText(this, "Ditambahkan ke \"${board.name}\"", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Sudah ada di flow board ini", Toast.LENGTH_SHORT).show()
             }
         }
     }
