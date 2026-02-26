@@ -16,11 +16,19 @@ import com.driversfpoc.screenreader.data.model.FlowBoardItem
  * v1: captures table
  * v2: + tag, note, is_starred columns
  * v3: + flow_boards, flow_board_items tables
+ *
+ * Schema export di-enable agar Room generate JSON schema file
+ * di build time. File ini berguna untuk:
+ * - Validasi migration: Room bisa compare schema lama vs baru
+ * - Dokumentasi: developer bisa lihat struktur DB tanpa baca kode
+ * - Testing: AutoMigrationSpec bisa digunakan di masa depan
+ *
+ * Output lokasi: app/schemas/com.driversfpoc.screenreader.data.AppDatabase/
  */
 @Database(
     entities = [CaptureRecord::class, FlowBoard::class, FlowBoardItem::class],
     version = 3,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
 
