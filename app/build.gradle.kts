@@ -14,6 +14,9 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
+
+        // Instrumented test runner
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -81,4 +84,18 @@ dependencies {
 
     // Gson for JSON serialization
     implementation("com.google.code.gson:gson:2.10.1")
+
+    // ──────────────────────────────────────────────
+    // Testing
+    // ──────────────────────────────────────────────
+
+    // Unit tests
+    testImplementation("junit:junit:4.13.2")
+
+    // Instrumented tests (run on emulator/device)
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation("androidx.test:core:1.5.0")
+    androidTestImplementation("androidx.room:room-testing:$roomVersion")
+    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 }
