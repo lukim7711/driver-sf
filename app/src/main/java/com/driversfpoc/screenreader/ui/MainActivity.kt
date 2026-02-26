@@ -71,7 +71,7 @@ class MainActivity : AppCompatActivity() {
             ): Boolean = false
 
             override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
-                val position = viewHolder.adapterPosition
+                val position = viewHolder.bindingAdapterPosition
                 val record = adapter.currentList[position]
 
                 AlertDialog.Builder(this@MainActivity)
