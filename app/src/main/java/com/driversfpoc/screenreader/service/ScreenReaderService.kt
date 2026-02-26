@@ -41,6 +41,14 @@ import java.util.concurrent.atomic.AtomicInteger
  *   tertentu. Setelah window berakhir, halaman yang sama bisa terekam ulang.
  * - Klik: selalu direkam tanpa dedup (setiap klik adalah aksi unik)
  *
+ * Threading model:
+ * - onAccessibilityEvent() dipanggil di MAIN thread oleh system
+ * - captureClickEvent() aman di main thread (repository.insert() internal executor)
+ * - captureFullSnapshot() di-offload ke background executor karena isDuplicate()
+ *   melakukan blocking DB query yang dilarang Room di main thread
+ * - rootInActiveWindow harus diakses di main thread, tapi traversal dan
+ *   DB operations dijalankan di executor thread
+ *
  * Resource management:
  * - Semua AccessibilityNodeInfo di-recycle() pada Android < 14 (API 34)
  *   untuk mencegah memory leak. Pada API 34+ recycle() sudah deprecated
@@ -269,6 +277,10 @@ class ScreenReaderService : AccessibilityService() {
     /**
      * Cek apakah konten sudah pernah di-capture (dedup v4 — hybrid with time window).
      *
+     * PENTING: Method ini melakukan BLOCKING DB query (Layer 2).
+     * Harus dipanggil dari background thread (executor), BUKAN main thread.
+     * Room akan throw IllegalStateException jika dipanggil di main thread.
+     *
      * Layer 1 — Ring Buffer (memory, O(1)):
      *   Cek hash terhadap 10 capture terakhir di memory.
      *   Menangkap duplikat rapid-fire TANPA overhead DB query.
@@ -292,6 +304,7 @@ class ScreenReaderService : AccessibilityService() {
         }
 
         // Layer 2: DB check — dengan time window
+        // BLOCKING CALL — harus di background thread!
         val windowStart = getDeduplicateWindowStart()
         if (repository.hasContentHashSince(hash, windowStart)) {
             Log.d(TAG, "Dedup L2 (database, window=${DEDUP_WINDOW_HOURS}h): skip hash=$hash")
@@ -322,6 +335,9 @@ class ScreenReaderService : AccessibilityService() {
     /**
      * Merekam detail elemen yang diklik oleh user.
      * Tidak menggunakan debounce atau dedup karena setiap klik adalah aksi unik.
+     *
+     * Aman dipanggil di main thread karena repository.insert() menggunakan
+     * internal executor (fire-and-forget). Tidak ada blocking DB query di sini.
      *
      * event.source di-recycle setelah data diekstrak untuk mencegah memory leak.
      */
@@ -387,6 +403,13 @@ class ScreenReaderService : AccessibilityService() {
      * Menangkap snapshot seluruh teks di layar.
      * Digunakan untuk WINDOW_STATE_CHANGED dan WINDOW_CONTENT_CHANGED.
      *
+     * Threading:
+     * - rootInActiveWindow HARUS diakses di main thread (Android requirement)
+     * - Node traversal aman di main thread (CPU-only, tidak ada I/O)
+     * - isDuplicate() dan repository.insert() mengandung BLOCKING DB query
+     *   sehingga HARUS dijalankan di background thread
+     * - Solusi: extract data di main thread, lalu offload DB operations ke executor
+     *
      * Deduplication (v4 — hybrid with time window):
      * 1. Normalize teks (collapse whitespace, hapus invisible chars)
      * 2. Hash normalized text
@@ -399,6 +422,7 @@ class ScreenReaderService : AccessibilityService() {
      * - Semua child node di-recycle di dalam traverseNode() (API < 34)
      */
     private fun captureFullSnapshot(eventType: String) {
+        // STEP 1: Akses rootInActiveWindow di MAIN THREAD (Android requirement)
         val rootNode = try {
             rootInActiveWindow
         } catch (e: Exception) {
@@ -406,59 +430,78 @@ class ScreenReaderService : AccessibilityService() {
             null
         } ?: return
 
+        // STEP 2: Traverse node tree di MAIN THREAD
+        // Ini CPU-only operation, aman di main thread.
+        // Harus dilakukan di sini karena AccessibilityNodeInfo
+        // tidak bisa di-pass ke thread lain dengan aman.
+        val nodeDataList = mutableListOf<NodeData>()
         try {
-            val nodeDataList = mutableListOf<NodeData>()
             traverseNode(rootNode, nodeDataList, 0)
-
-            val sortedNodes = nodeDataList
-                .filter { it.text.isNotBlank() || it.contentDescription.isNotBlank() }
-                .sortedWith(compareBy({ it.boundsTop }, { it.boundsLeft }))
-
-            val plainText = sortedNodes.joinToString("\n") { node ->
-                buildString {
-                    if (node.text.isNotBlank()) append(node.text)
-                    if (node.contentDescription.isNotBlank()) {
-                        if (isNotBlank()) append(" ")
-                        append("[${node.contentDescription}]")
-                    }
-                }
-            }.trim()
-
-            if (plainText.isBlank()) return
-
-            // Normalize + hybrid dedup with time window (ring buffer → DB)
-            val normalizedText = normalizeText(plainText)
-            val contentHash = normalizedText.hashCode()
-
-            if (isDuplicate(contentHash)) return
-
-            val nodeTreeJson = gson.toJson(nodeDataList)
-
-            val record = CaptureRecord(
-                timestamp = Instant.now().toString(),
-                plainText = plainText,
-                nodeTreeJson = nodeTreeJson,
-                eventType = eventType,
-                textLength = plainText.length,
-                contentHash = contentHash
-            )
-
-            repository.insert(record)
-
-            lastCaptureTime = System.currentTimeMillis()
-            val count = _captureCountToday.incrementAndGet()
-
-            Log.d(TAG, "Captured #$count [$eventType]: ${plainText.take(50)}... (hash=$contentHash)")
-
-            try {
-                updateNotification()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to update notification", e)
-            }
         } catch (e: Exception) {
-            Log.e(TAG, "Error processing accessibility event", e)
+            Log.e(TAG, "Error traversing node tree", e)
+            return
         } finally {
             safeRecycle(rootNode)
+        }
+
+        // STEP 3: Offload text processing + DB operations ke BACKGROUND THREAD
+        // isDuplicate() melakukan blocking Room query yang TIDAK BOLEH di main thread.
+        executor.execute {
+            try {
+                val sortedNodes = nodeDataList
+                    .filter { it.text.isNotBlank() || it.contentDescription.isNotBlank() }
+                    .sortedWith(compareBy({ it.boundsTop }, { it.boundsLeft }))
+
+                val plainText = sortedNodes.joinToString("\n") { node ->
+                    buildString {
+                        if (node.text.isNotBlank()) append(node.text)
+                        if (node.contentDescription.isNotBlank()) {
+                            if (isNotBlank()) append(" ")
+                            append("[${node.contentDescription}]")
+                        }
+                    }
+                }.trim()
+
+                if (plainText.isBlank()) {
+                    Log.d(TAG, "Snapshot skipped: plainText is blank")
+                    return@execute
+                }
+
+                // Normalize + hybrid dedup with time window (ring buffer → DB)
+                val normalizedText = normalizeText(plainText)
+                val contentHash = normalizedText.hashCode()
+
+                // isDuplicate() melakukan blocking DB query — aman di sini (executor thread)
+                if (isDuplicate(contentHash)) return@execute
+
+                val nodeTreeJson = gson.toJson(nodeDataList)
+
+                val record = CaptureRecord(
+                    timestamp = Instant.now().toString(),
+                    plainText = plainText,
+                    nodeTreeJson = nodeTreeJson,
+                    eventType = eventType,
+                    textLength = plainText.length,
+                    contentHash = contentHash
+                )
+
+                // insert() via executor di dalam repository — tapi kita sudah di executor,
+                // jadi ini akan di-queue ke repository's executor. Tetap aman.
+                repository.insert(record)
+
+                lastCaptureTime = System.currentTimeMillis()
+                val count = _captureCountToday.incrementAndGet()
+
+                Log.d(TAG, "Captured #$count [$eventType]: ${plainText.take(50)}... (hash=$contentHash)")
+
+                try {
+                    updateNotification()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to update notification", e)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error processing snapshot on background thread", e)
+            }
         }
     }
 
