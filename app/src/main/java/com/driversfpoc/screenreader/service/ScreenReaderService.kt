@@ -15,6 +15,7 @@ import com.driversfpoc.screenreader.R
 import com.driversfpoc.screenreader.ScreenReaderApp
 import com.driversfpoc.screenreader.data.CaptureRepository
 import com.driversfpoc.screenreader.data.model.CaptureRecord
+import com.driversfpoc.screenreader.data.model.NodeData
 import com.driversfpoc.screenreader.ui.MainActivity
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
@@ -40,8 +41,9 @@ import java.util.concurrent.atomic.AtomicInteger
  * - Klik: selalu direkam tanpa debounce
  *
  * Resource management:
- * - Semua AccessibilityNodeInfo di-recycle() setelah digunakan
- *   untuk mencegah memory leak pada long-running service
+ * - Semua AccessibilityNodeInfo di-recycle() pada Android < 14 (API 34)
+ *   untuk mencegah memory leak. Pada API 34+ recycle() sudah deprecated
+ *   karena system mengelola lifecycle secara otomatis.
  * - Regex di-compile sekali sebagai companion object constant
  */
 class ScreenReaderService : AccessibilityService() {
@@ -151,7 +153,7 @@ class ScreenReaderService : AccessibilityService() {
                 // Pindah halaman: selalu rekam full snapshot
                 val now = System.currentTimeMillis()
                 lastStateChangeTime = now
-                captureFullSnapshot(event, "WINDOW_STATE_CHANGED")
+                captureFullSnapshot("WINDOW_STATE_CHANGED")
             }
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
                 val now = System.currentTimeMillis()
@@ -168,7 +170,7 @@ class ScreenReaderService : AccessibilityService() {
                     return
                 }
 
-                captureFullSnapshot(event, "WINDOW_CONTENT_CHANGED")
+                captureFullSnapshot("WINDOW_CONTENT_CHANGED")
             }
         }
     }
@@ -183,6 +185,30 @@ class ScreenReaderService : AccessibilityService() {
         isRunning = false
         _captureCountToday.set(0)
         recentHashes.clear()
+    }
+
+    // ──────────────────────────────────────────────
+    // Node Recycle Helper
+    // ──────────────────────────────────────────────
+
+    /**
+     * Safely recycle AccessibilityNodeInfo.
+     *
+     * Pada Android 14+ (API 34), recycle() sudah deprecated karena
+     * system mengelola lifecycle secara otomatis. Pada versi sebelumnya,
+     * recycle() wajib dipanggil untuk mencegah memory leak.
+     *
+     * Method ini menangani kedua kasus tanpa menghasilkan deprecation warning.
+     */
+    private fun safeRecycle(node: AccessibilityNodeInfo) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                @Suppress("DEPRECATION")
+                node.recycle()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to recycle node", e)
+            }
+        }
     }
 
     // ──────────────────────────────────────────────
@@ -308,12 +334,7 @@ class ScreenReaderService : AccessibilityService() {
         } catch (e: Exception) {
             Log.e(TAG, "Error capturing click event", e)
         } finally {
-            // PENTING: recycle source node untuk mencegah memory leak
-            try {
-                source.recycle()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to recycle source node", e)
-            }
+            safeRecycle(source)
         }
     }
 
@@ -333,10 +354,10 @@ class ScreenReaderService : AccessibilityService() {
      * 5. Jika tidak → simpan dan tambahkan hash ke ring buffer
      *
      * Resource management:
-     * - rootInActiveWindow di-recycle setelah traversal selesai
-     * - Semua child node di-recycle di dalam traverseNode()
+     * - rootInActiveWindow di-recycle setelah traversal selesai (API < 34)
+     * - Semua child node di-recycle di dalam traverseNode() (API < 34)
      */
-    private fun captureFullSnapshot(event: AccessibilityEvent, eventType: String) {
+    private fun captureFullSnapshot(eventType: String) {
         val rootNode = try {
             rootInActiveWindow
         } catch (e: Exception) {
@@ -393,12 +414,7 @@ class ScreenReaderService : AccessibilityService() {
         } catch (e: Exception) {
             Log.e(TAG, "Error processing accessibility event", e)
         } finally {
-            // PENTING: recycle root node setelah semua proses selesai
-            try {
-                rootNode.recycle()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to recycle root node", e)
-            }
+            safeRecycle(rootNode)
         }
     }
 
@@ -409,10 +425,9 @@ class ScreenReaderService : AccessibilityService() {
     /**
      * Traverse node tree secara rekursif dan kumpulkan data setiap node.
      *
-     * PENTING: Setiap child node yang didapat dari node.getChild(i)
-     * di-recycle() setelah selesai di-traverse. Ini mencegah memory leak
-     * karena setiap getChild() mengalokasikan object baru yang di-track
-     * oleh Android accessibility framework.
+     * Setiap child node yang didapat dari node.getChild(i)
+     * di-recycle via safeRecycle() setelah selesai di-traverse.
+     * Pada API < 34 ini mencegah memory leak, pada API 34+ menjadi no-op.
      *
      * Root node TIDAK di-recycle di sini — tanggung jawab pemanggil
      * (captureFullSnapshot) untuk me-recycle root node.
@@ -450,12 +465,7 @@ class ScreenReaderService : AccessibilityService() {
                 try {
                     traverseNode(child, result, depth + 1)
                 } finally {
-                    // PENTING: recycle setiap child node setelah traverse selesai
-                    try {
-                        child.recycle()
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to recycle child node at depth $depth", e)
-                    }
+                    safeRecycle(child)
                 }
             }
         } catch (e: Exception) {
@@ -520,16 +530,3 @@ class ScreenReaderService : AccessibilityService() {
         _captureCountToday.set(repository.getCountSince(todayStart))
     }
 }
-
-data class NodeData(
-    val className: String,
-    val text: String,
-    val contentDescription: String,
-    val resourceId: String,
-    val boundsLeft: Int,
-    val boundsTop: Int,
-    val boundsRight: Int,
-    val boundsBottom: Int,
-    val childCount: Int,
-    val depth: Int
-)
