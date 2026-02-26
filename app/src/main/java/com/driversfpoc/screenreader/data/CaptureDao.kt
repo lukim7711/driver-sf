@@ -70,6 +70,8 @@ interface CaptureDao {
      * menghasilkan duplikat konten lintas sesi.
      *
      * Index pada content_hash memastikan query ini O(1) lookup.
+     *
+     * @deprecated Gunakan [hasContentHashSince] dengan time window.
      */
     @Query("""
         SELECT COUNT(*) FROM captures 
@@ -78,4 +80,28 @@ interface CaptureDao {
         AND event_type IN ('WINDOW_STATE_CHANGED', 'WINDOW_CONTENT_CHANGED')
     """)
     fun countByHash(hash: Int): Int
+
+    /**
+     * Cek apakah konten dengan hash yang sama sudah tersimpan
+     * DALAM RENTANG WAKTU tertentu (time window).
+     *
+     * Ini menggantikan countByHash() yang cek seluruh riwayat tanpa batas.
+     * Dengan time window, halaman yang sama bisa terekam ulang di sesi
+     * kerja berikutnya setelah window berakhir.
+     *
+     * Contoh: time window 12 jam → halaman yang sama bisa terekam
+     * ulang setelah 12 jam berlalu sejak capture terakhir.
+     *
+     * @param hash content_hash dari normalized text
+     * @param since ISO 8601 timestamp batas bawah (window start)
+     * @return jumlah record dengan hash yang sama dalam window
+     */
+    @Query("""
+        SELECT COUNT(*) FROM captures 
+        WHERE content_hash = :hash 
+        AND content_hash != 0
+        AND event_type IN ('WINDOW_STATE_CHANGED', 'WINDOW_CONTENT_CHANGED')
+        AND timestamp >= :since
+    """)
+    fun countByHashSince(hash: Int, since: String): Int
 }
