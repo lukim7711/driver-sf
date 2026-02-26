@@ -48,6 +48,12 @@ android {
     }
 }
 
+// Room schema export directory
+// KSP generates schema JSON files here for migration validation
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     // Core Library Desugaring (java.time for API < 26)
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
