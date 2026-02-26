@@ -34,11 +34,10 @@ import java.util.concurrent.atomic.AtomicInteger
  * 3. Untuk window/content change: traverse seluruh node tree secara rekursif
  * 4. Menyimpan plain text (urut by bounds) + node tree JSON ke database
  *
- * Deduplication strategy (v2 — ring buffer):
- * - STATE_CHANGED (PAGE): selalu direkam, reset suppress window
- * - CONTENT_CHANGED (UPDATE): di-suppress 1.5 detik setelah STATE_CHANGED,
- *   di-debounce 800ms, dan di-cek via ring buffer hash (10 capture terakhir)
- * - Klik: selalu direkam tanpa debounce
+ * Deduplication strategy (v3 — hybrid ring buffer + DB):
+ * - Layer 1: Ring buffer (memory) — tangkap duplikat rapid-fire tanpa DB query
+ * - Layer 2: DB check — tangkap duplikat lintas sesi menggunakan content_hash
+ * - Klik: selalu direkam tanpa dedup (setiap klik adalah aksi unik)
  *
  * Resource management:
  * - Semua AccessibilityNodeInfo di-recycle() pada Android < 14 (API 34)
@@ -71,10 +70,8 @@ class ScreenReaderService : AccessibilityService() {
 
         /**
          * Jumlah hash yang disimpan dalam ring buffer untuk dedup.
-         * Menangkap duplikat dari navigasi bolak-balik antar halaman.
-         * Misal: Halaman A → B → Peta → B (kembali)
-         * Dengan ring buffer size 10, hash B masih tersimpan sehingga
-         * duplikat terdeteksi meskipun ada halaman lain di antaranya.
+         * Ring buffer adalah Layer 1 (fast path) — menghindari DB query
+         * untuk duplikat yang baru saja di-capture.
          */
         private const val DEDUP_HISTORY_SIZE = 10
 
@@ -102,6 +99,8 @@ class ScreenReaderService : AccessibilityService() {
 
     /**
      * Ring buffer menyimpan N hash terakhir dari capture yang berhasil disimpan.
+     * Ini adalah Layer 1 dedup — fast path tanpa DB query.
+     *
      * Menggunakan LinkedHashSet untuk:
      * - O(1) lookup (contains check)
      * - Menjaga insertion order (FIFO eviction)
@@ -146,11 +145,11 @@ class ScreenReaderService : AccessibilityService() {
         when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_CLICKED,
             AccessibilityEvent.TYPE_VIEW_SELECTED -> {
-                // Klik/Select: rekam elemen yang diklik — TANPA debounce
+                // Klik/Select: rekam elemen yang diklik — TANPA debounce/dedup
                 captureClickEvent(event)
             }
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                // Pindah halaman: selalu rekam full snapshot
+                // Pindah halaman: rekam full snapshot (dengan dedup)
                 val now = System.currentTimeMillis()
                 lastStateChangeTime = now
                 captureFullSnapshot("WINDOW_STATE_CHANGED")
@@ -238,40 +237,54 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     // ──────────────────────────────────────────────
-    // Ring Buffer Deduplication
+    // Hybrid Deduplication (Ring Buffer + DB)
     // ──────────────────────────────────────────────
 
     /**
-     * Cek apakah teks sudah pernah di-capture dalam N capture terakhir.
+     * Cek apakah konten sudah pernah di-capture (dedup v3 — hybrid).
      *
-     * Menggunakan ring buffer (LinkedHashSet) berisi hash dari teks
-     * yang sudah dinormalisasi. Jika hash ditemukan di buffer,
-     * teks dianggap duplikat.
+     * Layer 1 — Ring Buffer (memory, O(1)):
+     *   Cek hash terhadap 10 capture terakhir di memory.
+     *   Menangkap duplikat rapid-fire TANPA overhead DB query.
      *
-     * Jika bukan duplikat, hash ditambahkan ke buffer dan entry
-     * terlama di-evict jika buffer sudah penuh.
+     * Layer 2 — Database (indexed, O(1) amortized):
+     *   Jika tidak ditemukan di ring buffer, cek terhadap SELURUH DB.
+     *   Menangkap duplikat lintas sesi (buka app → tutup → buka lagi).
+     *   Query menggunakan index pada content_hash, jadi tetap cepat.
      *
-     * @param normalizedText teks yang sudah di-normalize
+     * Jika bukan duplikat di kedua layer, hash ditambahkan ke ring buffer.
+     *
+     * @param hash hashCode dari normalized text
      * @return true jika duplikat, false jika unik
      */
-    private fun isDuplicate(normalizedText: String): Boolean {
-        val hash = normalizedText.hashCode()
-
+    private fun isDuplicate(hash: Int): Boolean {
+        // Layer 1: Ring buffer — fast path
         if (hash in recentHashes) {
-            Log.d(TAG, "Skipped: duplicate found in recent $DEDUP_HISTORY_SIZE captures (hash=$hash)")
+            Log.d(TAG, "Dedup L1 (ring buffer): skip hash=$hash")
             return true
         }
 
-        // Tambah hash baru ke buffer
-        recentHashes.add(hash)
-
-        // Evict hash terlama jika buffer penuh (FIFO)
-        if (recentHashes.size > DEDUP_HISTORY_SIZE) {
-            val oldest = recentHashes.first()
-            recentHashes.remove(oldest)
+        // Layer 2: DB check — cek seluruh riwayat
+        if (repository.hasContentHash(hash)) {
+            Log.d(TAG, "Dedup L2 (database): skip hash=$hash")
+            // Cache ke ring buffer agar next hit langsung L1
+            addToRingBuffer(hash)
+            return true
         }
 
+        // Unik — tambah ke ring buffer
+        addToRingBuffer(hash)
         return false
+    }
+
+    /**
+     * Tambah hash ke ring buffer dengan FIFO eviction.
+     */
+    private fun addToRingBuffer(hash: Int) {
+        recentHashes.add(hash)
+        if (recentHashes.size > DEDUP_HISTORY_SIZE) {
+            recentHashes.remove(recentHashes.first())
+        }
     }
 
     // ──────────────────────────────────────────────
@@ -280,7 +293,7 @@ class ScreenReaderService : AccessibilityService() {
 
     /**
      * Merekam detail elemen yang diklik oleh user.
-     * Tidak menggunakan debounce karena setiap klik adalah aksi penting.
+     * Tidak menggunakan debounce atau dedup karena setiap klik adalah aksi unik.
      *
      * event.source di-recycle setelah data diekstrak untuk mencegah memory leak.
      */
@@ -346,12 +359,12 @@ class ScreenReaderService : AccessibilityService() {
      * Menangkap snapshot seluruh teks di layar.
      * Digunakan untuk WINDOW_STATE_CHANGED dan WINDOW_CONTENT_CHANGED.
      *
-     * Deduplication (v2):
+     * Deduplication (v3 — hybrid):
      * 1. Normalize teks (collapse whitespace, hapus invisible chars)
      * 2. Hash normalized text
-     * 3. Cek hash terhadap ring buffer (10 capture terakhir)
-     * 4. Jika ditemukan → skip (duplikat dari navigasi bolak-balik)
-     * 5. Jika tidak → simpan dan tambahkan hash ke ring buffer
+     * 3. Cek hash: ring buffer (L1) → DB (L2)
+     * 4. Jika ditemukan di salah satu layer → skip
+     * 5. Jika unik → simpan ke DB dengan content_hash
      *
      * Resource management:
      * - rootInActiveWindow di-recycle setelah traversal selesai (API < 34)
@@ -385,9 +398,11 @@ class ScreenReaderService : AccessibilityService() {
 
             if (plainText.isBlank()) return
 
-            // Normalize + ring buffer dedup
+            // Normalize + hybrid dedup (ring buffer → DB)
             val normalizedText = normalizeText(plainText)
-            if (isDuplicate(normalizedText)) return
+            val contentHash = normalizedText.hashCode()
+
+            if (isDuplicate(contentHash)) return
 
             val nodeTreeJson = gson.toJson(nodeDataList)
 
@@ -396,7 +411,8 @@ class ScreenReaderService : AccessibilityService() {
                 plainText = plainText,
                 nodeTreeJson = nodeTreeJson,
                 eventType = eventType,
-                textLength = plainText.length
+                textLength = plainText.length,
+                contentHash = contentHash
             )
 
             repository.insert(record)
@@ -404,7 +420,7 @@ class ScreenReaderService : AccessibilityService() {
             lastCaptureTime = System.currentTimeMillis()
             val count = _captureCountToday.incrementAndGet()
 
-            Log.d(TAG, "Captured #$count [$eventType]: ${plainText.take(50)}...")
+            Log.d(TAG, "Captured #$count [$eventType]: ${plainText.take(50)}... (hash=$contentHash)")
 
             try {
                 updateNotification()
