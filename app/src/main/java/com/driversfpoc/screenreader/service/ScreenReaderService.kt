@@ -39,14 +39,10 @@ import java.util.concurrent.atomic.AtomicInteger
  *   di-debounce 800ms, dan di-cek via ring buffer hash (10 capture terakhir)
  * - Klik: selalu direkam tanpa debounce
  *
- * Perubahan dari v1:
- * - DIHAPUS: prefix similarity check (100 char) — terlalu agresif,
- *   menyebabkan variasi penting di-skip untuk keperluan data collection
- * - DIGANTI: single lastCaptureHash → ring buffer (LinkedHashSet) 10 hash
- *   terakhir untuk menangkap duplikat dari navigasi bolak-balik
- * - DITAMBAH: normalizeText() untuk menangkap duplikat yang beda di
- *   whitespace/invisible characters
- * - DITAMBAH: AtomicInteger untuk thread-safe captureCountToday
+ * Resource management:
+ * - Semua AccessibilityNodeInfo di-recycle() setelah digunakan
+ *   untuk mencegah memory leak pada long-running service
+ * - Regex di-compile sekali sebagai companion object constant
  */
 class ScreenReaderService : AccessibilityService() {
 
@@ -79,6 +75,14 @@ class ScreenReaderService : AccessibilityService() {
          * duplikat terdeteksi meskipun ada halaman lain di antaranya.
          */
         private const val DEDUP_HISTORY_SIZE = 10
+
+        /**
+         * Pre-compiled regex untuk normalizeText().
+         * Di-compile sekali saat class di-load, bukan setiap pemanggilan.
+         * Menghindari overhead compile + alokasi Regex object berulang
+         * pada service yang bisa dipanggil ratusan kali per sesi.
+         */
+        private val WHITESPACE_REGEX = Regex("\\s+")
 
         var isRunning = false
             private set
@@ -193,16 +197,18 @@ class ScreenReaderService : AccessibilityService() {
      * - "Total: Rp 45.000"  (1 spasi) vs "Total: Rp  45.000" (2 spasi)
      * - Trailing whitespace / newline berbeda
      * - Non-breaking space (\u00A0) vs regular space
+     *
+     * Menggunakan WHITESPACE_REGEX yang sudah di-compile di companion object.
      */
     private fun normalizeText(text: String): String {
         return text
             .trim()
-            .replace('\u00A0', ' ')       // non-breaking space → regular space
-            .replace('\u200B', ' ')       // zero-width space → space
-            .replace('\u200C', ' ')       // zero-width non-joiner → space
-            .replace('\u200D', ' ')       // zero-width joiner → space
-            .replace('\uFEFF', ' ')       // BOM → space
-            .replace(Regex("\\s+"), " ")  // collapse semua whitespace jadi 1 spasi
+            .replace('\u00A0', ' ')          // non-breaking space → regular space
+            .replace('\u200B', ' ')          // zero-width space → space
+            .replace('\u200C', ' ')          // zero-width non-joiner → space
+            .replace('\u200D', ' ')          // zero-width joiner → space
+            .replace('\uFEFF', ' ')          // BOM → space
+            .replace(WHITESPACE_REGEX, " ")  // collapse semua whitespace jadi 1 spasi
     }
 
     // ──────────────────────────────────────────────
@@ -249,6 +255,8 @@ class ScreenReaderService : AccessibilityService() {
     /**
      * Merekam detail elemen yang diklik oleh user.
      * Tidak menggunakan debounce karena setiap klik adalah aksi penting.
+     *
+     * event.source di-recycle setelah data diekstrak untuk mencegah memory leak.
      */
     private fun captureClickEvent(event: AccessibilityEvent) {
         val source = try {
@@ -299,6 +307,13 @@ class ScreenReaderService : AccessibilityService() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error capturing click event", e)
+        } finally {
+            // PENTING: recycle source node untuk mencegah memory leak
+            try {
+                source.recycle()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to recycle source node", e)
+            }
         }
     }
 
@@ -316,6 +331,10 @@ class ScreenReaderService : AccessibilityService() {
      * 3. Cek hash terhadap ring buffer (10 capture terakhir)
      * 4. Jika ditemukan → skip (duplikat dari navigasi bolak-balik)
      * 5. Jika tidak → simpan dan tambahkan hash ke ring buffer
+     *
+     * Resource management:
+     * - rootInActiveWindow di-recycle setelah traversal selesai
+     * - Semua child node di-recycle di dalam traverseNode()
      */
     private fun captureFullSnapshot(event: AccessibilityEvent, eventType: String) {
         val rootNode = try {
@@ -373,6 +392,13 @@ class ScreenReaderService : AccessibilityService() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error processing accessibility event", e)
+        } finally {
+            // PENTING: recycle root node setelah semua proses selesai
+            try {
+                rootNode.recycle()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to recycle root node", e)
+            }
         }
     }
 
@@ -380,6 +406,17 @@ class ScreenReaderService : AccessibilityService() {
     // Node Tree Traversal
     // ──────────────────────────────────────────────
 
+    /**
+     * Traverse node tree secara rekursif dan kumpulkan data setiap node.
+     *
+     * PENTING: Setiap child node yang didapat dari node.getChild(i)
+     * di-recycle() setelah selesai di-traverse. Ini mencegah memory leak
+     * karena setiap getChild() mengalokasikan object baru yang di-track
+     * oleh Android accessibility framework.
+     *
+     * Root node TIDAK di-recycle di sini — tanggung jawab pemanggil
+     * (captureFullSnapshot) untuk me-recycle root node.
+     */
     private fun traverseNode(
         node: AccessibilityNodeInfo,
         result: MutableList<NodeData>,
@@ -409,7 +446,17 @@ class ScreenReaderService : AccessibilityService() {
                 } catch (e: Exception) {
                     null
                 } ?: continue
-                traverseNode(child, result, depth + 1)
+
+                try {
+                    traverseNode(child, result, depth + 1)
+                } finally {
+                    // PENTING: recycle setiap child node setelah traverse selesai
+                    try {
+                        child.recycle()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to recycle child node at depth $depth", e)
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error traversing node at depth $depth", e)
