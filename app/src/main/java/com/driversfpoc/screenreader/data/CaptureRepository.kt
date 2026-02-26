@@ -99,9 +99,6 @@ class CaptureRepository private constructor(context: Context) {
     /**
      * Ambil CaptureRecord by ID secara async.
      * Callback dipanggil di main thread agar aman untuk update UI.
-     *
-     * Menggantikan getById() blocking yang sebelumnya membutuhkan
-     * caller untuk membuat executor sendiri.
      */
     fun getByIdAsync(id: Long, onResult: (CaptureRecord?) -> Unit) {
         executor.execute {
@@ -110,9 +107,22 @@ class CaptureRepository private constructor(context: Context) {
         }
     }
 
+    // ──────────────────────────────────────────────
+    // Read Operations — Blocking (background thread only)
+    // ──────────────────────────────────────────────
+
     /**
      * Blocking version — HANYA untuk dipanggil dari background thread.
      * Digunakan oleh ScreenReaderService yang sudah berjalan di executor-nya sendiri.
      */
     fun getCountSince(sinceTimestamp: String): Int = dao.getCountSince(sinceTimestamp)
+
+    /**
+     * Cek apakah konten dengan hash yang sama sudah pernah tersimpan di DB.
+     * Blocking call — hanya panggil dari background thread.
+     *
+     * Digunakan oleh ScreenReaderService untuk dedup lintas sesi.
+     * Index pada content_hash memastikan query ini cepat (O(1) lookup).
+     */
+    fun hasContentHash(hash: Int): Boolean = dao.countByHash(hash) > 0
 }

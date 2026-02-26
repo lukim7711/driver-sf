@@ -63,4 +63,19 @@ interface CaptureDao {
 
     @Query("DELETE FROM captures WHERE timestamp < :beforeTimestamp")
     fun deleteOlderThan(beforeTimestamp: String): Int
+
+    /**
+     * Cek apakah konten dengan hash yang sama sudah pernah tersimpan.
+     * Hanya cek snapshot events (bukan klik) karena snapshot yang
+     * menghasilkan duplikat konten lintas sesi.
+     *
+     * Index pada content_hash memastikan query ini O(1) lookup.
+     */
+    @Query("""
+        SELECT COUNT(*) FROM captures 
+        WHERE content_hash = :hash 
+        AND content_hash != 0
+        AND event_type IN ('WINDOW_STATE_CHANGED', 'WINDOW_CONTENT_CHANGED')
+    """)
+    fun countByHash(hash: Int): Int
 }

@@ -16,6 +16,7 @@ import com.driversfpoc.screenreader.data.model.FlowBoardItem
  * v1: captures table
  * v2: + tag, note, is_starred columns
  * v3: + flow_boards, flow_board_items tables
+ * v4: + content_hash column + index untuk dedup lintas sesi
  *
  * Schema export di-enable agar Room generate JSON schema file
  * di build time. File ini berguna untuk:
@@ -27,7 +28,7 @@ import com.driversfpoc.screenreader.data.model.FlowBoardItem
  */
 @Database(
     entities = [CaptureRecord::class, FlowBoard::class, FlowBoardItem::class],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -77,6 +78,24 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Migration v3 → v4: content_hash untuk dedup lintas sesi.
+         *
+         * Menambahkan kolom content_hash (INTEGER) ke tabel captures.
+         * Default 0 untuk record lama (sebelum v4) yang belum punya hash.
+         * Index pada content_hash untuk O(1) lookup saat dedup check.
+         */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE captures ADD COLUMN content_hash INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_captures_content_hash ON captures(content_hash)"
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -84,7 +103,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "screen_reader_db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                 INSTANCE = instance
                 instance

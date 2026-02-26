@@ -2,6 +2,7 @@ package com.driversfpoc.screenreader.data.model
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
@@ -11,8 +12,12 @@ import androidx.room.PrimaryKey
  * 1 record CaptureRecord disimpan ke database.
  *
  * v2: Ditambahkan tag, note, is_starred untuk keperluan riset.
+ * v4: Ditambahkan content_hash untuk dedup lintas sesi.
  */
-@Entity(tableName = "captures")
+@Entity(
+    tableName = "captures",
+    indices = [Index(value = ["content_hash"])]
+)
 data class CaptureRecord(
 
     @PrimaryKey(autoGenerate = true)
@@ -48,5 +53,15 @@ data class CaptureRecord(
 
     /** Tandai record penting agar mudah ditemukan */
     @ColumnInfo(name = "is_starred", defaultValue = "0")
-    val isStarred: Boolean = false
+    val isStarred: Boolean = false,
+
+    /**
+     * Hash dari normalized plainText untuk dedup lintas sesi.
+     * Dihitung oleh ScreenReaderService sebelum insert.
+     * Digunakan untuk cek duplikat terhadap seluruh DB.
+     *
+     * Nilai 0 = hash belum dihitung (legacy records sebelum v4).
+     */
+    @ColumnInfo(name = "content_hash", defaultValue = "0")
+    val contentHash: Int = 0
 )
