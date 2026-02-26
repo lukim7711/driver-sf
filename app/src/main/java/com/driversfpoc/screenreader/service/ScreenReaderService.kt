@@ -21,6 +21,7 @@ import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import java.time.Instant
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -34,9 +35,10 @@ import java.util.concurrent.atomic.AtomicInteger
  * 3. Untuk window/content change: traverse seluruh node tree secara rekursif
  * 4. Menyimpan plain text (urut by bounds) + node tree JSON ke database
  *
- * Deduplication strategy (v3 — hybrid ring buffer + DB):
+ * Deduplication strategy (v4 — hybrid ring buffer + DB with time window):
  * - Layer 1: Ring buffer (memory) — tangkap duplikat rapid-fire tanpa DB query
- * - Layer 2: DB check — tangkap duplikat lintas sesi menggunakan content_hash
+ * - Layer 2: DB check WITH TIME WINDOW — tangkap duplikat dalam rentang waktu
+ *   tertentu. Setelah window berakhir, halaman yang sama bisa terekam ulang.
  * - Klik: selalu direkam tanpa dedup (setiap klik adalah aksi unik)
  *
  * Resource management:
@@ -74,6 +76,19 @@ class ScreenReaderService : AccessibilityService() {
          * untuk duplikat yang baru saja di-capture.
          */
         private const val DEDUP_HISTORY_SIZE = 10
+
+        /**
+         * Time window untuk DB dedup check (Layer 2).
+         *
+         * Hanya cek duplikat dalam rentang waktu ini (dalam jam).
+         * Setelah window berakhir, halaman yang sama bisa terekam ulang.
+         *
+         * 12 jam dipilih karena:
+         * - Satu shift kerja driver biasanya 8-12 jam
+         * - Halaman yang sama dalam 1 shift = duplikat (skip)
+         * - Halaman yang sama di shift berikutnya = data baru (rekam)
+         */
+        private const val DEDUP_WINDOW_HOURS = 12L
 
         /**
          * Pre-compiled regex untuk normalizeText().
@@ -237,19 +252,31 @@ class ScreenReaderService : AccessibilityService() {
     }
 
     // ──────────────────────────────────────────────
-    // Hybrid Deduplication (Ring Buffer + DB)
+    // Hybrid Deduplication (Ring Buffer + DB with Time Window)
     // ──────────────────────────────────────────────
 
     /**
-     * Cek apakah konten sudah pernah di-capture (dedup v3 — hybrid).
+     * Hitung batas waktu awal time window untuk DB dedup.
+     *
+     * @return ISO 8601 timestamp dari [DEDUP_WINDOW_HOURS] jam yang lalu
+     */
+    private fun getDeduplicateWindowStart(): String {
+        return Instant.now()
+            .minus(DEDUP_WINDOW_HOURS, ChronoUnit.HOURS)
+            .toString()
+    }
+
+    /**
+     * Cek apakah konten sudah pernah di-capture (dedup v4 — hybrid with time window).
      *
      * Layer 1 — Ring Buffer (memory, O(1)):
      *   Cek hash terhadap 10 capture terakhir di memory.
      *   Menangkap duplikat rapid-fire TANPA overhead DB query.
      *
-     * Layer 2 — Database (indexed, O(1) amortized):
-     *   Jika tidak ditemukan di ring buffer, cek terhadap SELURUH DB.
-     *   Menangkap duplikat lintas sesi (buka app → tutup → buka lagi).
+     * Layer 2 — Database WITH TIME WINDOW (indexed, O(1) amortized):
+     *   Jika tidak ditemukan di ring buffer, cek terhadap DB
+     *   HANYA DALAM RENTANG WAKTU [DEDUP_WINDOW_HOURS] jam terakhir.
+     *   Setelah window berakhir, halaman yang sama bisa terekam ulang.
      *   Query menggunakan index pada content_hash, jadi tetap cepat.
      *
      * Jika bukan duplikat di kedua layer, hash ditambahkan ke ring buffer.
@@ -264,9 +291,10 @@ class ScreenReaderService : AccessibilityService() {
             return true
         }
 
-        // Layer 2: DB check — cek seluruh riwayat
-        if (repository.hasContentHash(hash)) {
-            Log.d(TAG, "Dedup L2 (database): skip hash=$hash")
+        // Layer 2: DB check — dengan time window
+        val windowStart = getDeduplicateWindowStart()
+        if (repository.hasContentHashSince(hash, windowStart)) {
+            Log.d(TAG, "Dedup L2 (database, window=${DEDUP_WINDOW_HOURS}h): skip hash=$hash")
             // Cache ke ring buffer agar next hit langsung L1
             addToRingBuffer(hash)
             return true
@@ -359,10 +387,10 @@ class ScreenReaderService : AccessibilityService() {
      * Menangkap snapshot seluruh teks di layar.
      * Digunakan untuk WINDOW_STATE_CHANGED dan WINDOW_CONTENT_CHANGED.
      *
-     * Deduplication (v3 — hybrid):
+     * Deduplication (v4 — hybrid with time window):
      * 1. Normalize teks (collapse whitespace, hapus invisible chars)
      * 2. Hash normalized text
-     * 3. Cek hash: ring buffer (L1) → DB (L2)
+     * 3. Cek hash: ring buffer (L1) → DB with time window (L2)
      * 4. Jika ditemukan di salah satu layer → skip
      * 5. Jika unik → simpan ke DB dengan content_hash
      *
@@ -398,7 +426,7 @@ class ScreenReaderService : AccessibilityService() {
 
             if (plainText.isBlank()) return
 
-            // Normalize + hybrid dedup (ring buffer → DB)
+            // Normalize + hybrid dedup with time window (ring buffer → DB)
             val normalizedText = normalizeText(plainText)
             val contentHash = normalizedText.hashCode()
 

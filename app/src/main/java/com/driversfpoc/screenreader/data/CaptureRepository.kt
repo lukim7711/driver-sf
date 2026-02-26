@@ -123,6 +123,24 @@ class CaptureRepository private constructor(context: Context) {
      *
      * Digunakan oleh ScreenReaderService untuk dedup lintas sesi.
      * Index pada content_hash memastikan query ini cepat (O(1) lookup).
+     *
+     * @deprecated Gunakan [hasContentHashSince] dengan time window.
      */
     fun hasContentHash(hash: Int): Boolean = dao.countByHash(hash) > 0
+
+    /**
+     * Cek apakah konten dengan hash yang sama sudah tersimpan
+     * DALAM RENTANG WAKTU tertentu.
+     * Blocking call — hanya panggil dari background thread.
+     *
+     * Menggantikan hasContentHash() yang cek seluruh riwayat tanpa batas.
+     * Dengan time window, halaman yang pernah ter-capture bisa terekam
+     * ulang setelah window berakhir — cocok untuk sesi kerja berbeda.
+     *
+     * @param hash content_hash dari normalized text
+     * @param sinceTimestamp ISO 8601 timestamp batas bawah
+     * @return true jika sudah ada record dengan hash ini dalam window
+     */
+    fun hasContentHashSince(hash: Int, sinceTimestamp: String): Boolean =
+        dao.countByHashSince(hash, sinceTimestamp) > 0
 }
